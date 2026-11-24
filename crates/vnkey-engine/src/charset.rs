@@ -20,6 +20,11 @@ impl CodeTable {
             Self::Cp1258 => 4,
         }
     }
+
+    /// Whether one letter can take two characters in the target application.
+    pub(crate) fn is_double_code(self) -> bool {
+        matches!(self, Self::VniWindows | Self::UnicodeCompound)
+    }
 }
 
 /// The table character for a letter with diacritics, tagged with
