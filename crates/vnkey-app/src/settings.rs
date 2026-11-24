@@ -73,6 +73,10 @@ impl Settings {
         read_json(path)
     }
 
+    #[cfg_attr(
+        not(target_os = "macos"),
+        allow(dead_code, reason = "used by the macOS menu bar")
+    )]
     pub fn save(&self, path: &Path) -> io::Result<()> {
         write_json(path, self)
     }

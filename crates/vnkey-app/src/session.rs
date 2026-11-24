@@ -119,6 +119,10 @@ impl Session {
         self.engine.handle_mouse_down();
     }
 
+    #[cfg_attr(
+        not(target_os = "macos"),
+        allow(dead_code, reason = "used by the macOS menu bar")
+    )]
     #[must_use]
     pub fn is_vietnamese(&self) -> bool {
         self.engine.is_vietnamese()
@@ -134,6 +138,10 @@ impl Session {
         self.save_state();
     }
 
+    #[cfg_attr(
+        not(target_os = "macos"),
+        allow(dead_code, reason = "used by the macOS menu bar")
+    )]
     #[must_use]
     pub fn input_type(&self) -> InputType {
         self.settings.config.input_type
@@ -146,6 +154,10 @@ impl Session {
         self.apply_settings(settings);
     }
 
+    #[cfg_attr(
+        not(target_os = "macos"),
+        allow(dead_code, reason = "used by the macOS menu bar")
+    )]
     /// Switches the input type and saves it to `settings.json`.
     pub fn set_input_type(&mut self, input_type: InputType) {
         self.use_input_type(input_type);
