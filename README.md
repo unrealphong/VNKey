@@ -24,6 +24,16 @@ cargo test --workspace
 
 The binary is written to `target/release/vnkey`.
 
+Build a signed local macOS application bundle:
+
+```sh
+./packaging/macos/build-app.sh
+open dist/VNKey.app
+```
+
+The local bundle uses ad-hoc signing for development. A public release should
+use an Apple Developer ID certificate and notarization.
+
 ## Use
 
 Verify Telex conversion without installing the keyboard daemon:

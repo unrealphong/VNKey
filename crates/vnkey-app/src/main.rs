@@ -33,13 +33,8 @@ fn main() -> ExitCode {
             println!("{:?}", inputs::permission_status());
             ExitCode::SUCCESS
         }
-        _ => {
-            println!("VNKey {}", env!("CARGO_PKG_VERSION"));
-            println!("Usage: vnkey convert [telex|vni] <text>");
-            println!("       vnkey daemon [telex|vni]");
-            println!("       vnkey permissions");
-            ExitCode::SUCCESS
-        }
+        None if cfg!(target_os = "macos") => run_daemon(InputMethod::Telex),
+        _ => print_help(),
     }
 }
 
@@ -82,6 +77,14 @@ fn run_daemon(method: InputMethod) -> ExitCode {
     }
     eprintln!("The keyboard listener stopped unexpectedly.");
     ExitCode::FAILURE
+}
+
+fn print_help() -> ExitCode {
+    println!("VNKey {}", env!("CARGO_PKG_VERSION"));
+    println!("Usage: vnkey convert [telex|vni] <text>");
+    println!("       vnkey daemon [telex|vni]");
+    println!("       vnkey permissions");
+    ExitCode::SUCCESS
 }
 
 fn handle_event(event: &Event, runtime: &Mutex<Runtime>) -> EventDisposition {
