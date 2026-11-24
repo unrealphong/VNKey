@@ -1,0 +1,9 @@
+VNKey
+Copyright (C) 2026 VNKey contributors
+
+The typing engine in crates/vnkey-engine is derived from OpenKey,
+Copyright (C) Mai Vu Tuyen and contributors <https://github.com/tuyenvm/OpenKey>,
+licensed under the GNU General Public License version 3. It was translated
+from C++ to Rust and modified.
+
+VNKey is distributed under the same license; see LICENSE.

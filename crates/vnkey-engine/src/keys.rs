@@ -3,71 +3,73 @@
 //! Internally every key is a macOS virtual key code, because the engine's
 //! tables and rules are keyed by those codes.
 
-pub(crate) const KEY_ESC: u16 = 53;
-pub(crate) const KEY_DELETE: u16 = 51;
-pub(crate) const KEY_TAB: u16 = 48;
-pub(crate) const KEY_ENTER: u16 = 76;
-pub(crate) const KEY_RETURN: u16 = 36;
-pub(crate) const KEY_SPACE: u16 = 49;
-pub(crate) const KEY_LEFT: u16 = 123;
-pub(crate) const KEY_RIGHT: u16 = 124;
-pub(crate) const KEY_DOWN: u16 = 125;
-pub(crate) const KEY_UP: u16 = 126;
+use crate::word::CAPS_MASK;
 
-pub(crate) const KEY_A: u16 = 0;
-pub(crate) const KEY_B: u16 = 11;
-pub(crate) const KEY_C: u16 = 8;
-pub(crate) const KEY_D: u16 = 2;
-pub(crate) const KEY_E: u16 = 14;
-pub(crate) const KEY_F: u16 = 3;
-pub(crate) const KEY_G: u16 = 5;
-pub(crate) const KEY_H: u16 = 4;
-pub(crate) const KEY_I: u16 = 34;
-pub(crate) const KEY_J: u16 = 38;
-pub(crate) const KEY_K: u16 = 40;
-pub(crate) const KEY_L: u16 = 37;
-pub(crate) const KEY_M: u16 = 46;
-pub(crate) const KEY_N: u16 = 45;
-pub(crate) const KEY_O: u16 = 31;
-pub(crate) const KEY_P: u16 = 35;
-pub(crate) const KEY_Q: u16 = 12;
-pub(crate) const KEY_R: u16 = 15;
-pub(crate) const KEY_S: u16 = 1;
-pub(crate) const KEY_T: u16 = 17;
-pub(crate) const KEY_U: u16 = 32;
-pub(crate) const KEY_V: u16 = 9;
-pub(crate) const KEY_W: u16 = 13;
-pub(crate) const KEY_X: u16 = 7;
-pub(crate) const KEY_Y: u16 = 16;
-pub(crate) const KEY_Z: u16 = 6;
+pub(crate) const KEY_ESC: u32 = 53;
+pub(crate) const KEY_DELETE: u32 = 51;
+pub(crate) const KEY_TAB: u32 = 48;
+pub(crate) const KEY_ENTER: u32 = 76;
+pub(crate) const KEY_RETURN: u32 = 36;
+pub(crate) const KEY_SPACE: u32 = 49;
+pub(crate) const KEY_LEFT: u32 = 123;
+pub(crate) const KEY_RIGHT: u32 = 124;
+pub(crate) const KEY_DOWN: u32 = 125;
+pub(crate) const KEY_UP: u32 = 126;
 
-pub(crate) const KEY_1: u16 = 18;
-pub(crate) const KEY_2: u16 = 19;
-pub(crate) const KEY_3: u16 = 20;
-pub(crate) const KEY_4: u16 = 21;
-pub(crate) const KEY_5: u16 = 23;
-pub(crate) const KEY_6: u16 = 22;
-pub(crate) const KEY_7: u16 = 26;
-pub(crate) const KEY_8: u16 = 28;
-pub(crate) const KEY_9: u16 = 25;
-pub(crate) const KEY_0: u16 = 29;
+pub(crate) const KEY_A: u32 = 0;
+pub(crate) const KEY_B: u32 = 11;
+pub(crate) const KEY_C: u32 = 8;
+pub(crate) const KEY_D: u32 = 2;
+pub(crate) const KEY_E: u32 = 14;
+pub(crate) const KEY_F: u32 = 3;
+pub(crate) const KEY_G: u32 = 5;
+pub(crate) const KEY_H: u32 = 4;
+pub(crate) const KEY_I: u32 = 34;
+pub(crate) const KEY_J: u32 = 38;
+pub(crate) const KEY_K: u32 = 40;
+pub(crate) const KEY_L: u32 = 37;
+pub(crate) const KEY_M: u32 = 46;
+pub(crate) const KEY_N: u32 = 45;
+pub(crate) const KEY_O: u32 = 31;
+pub(crate) const KEY_P: u32 = 35;
+pub(crate) const KEY_Q: u32 = 12;
+pub(crate) const KEY_R: u32 = 15;
+pub(crate) const KEY_S: u32 = 1;
+pub(crate) const KEY_T: u32 = 17;
+pub(crate) const KEY_U: u32 = 32;
+pub(crate) const KEY_V: u32 = 9;
+pub(crate) const KEY_W: u32 = 13;
+pub(crate) const KEY_X: u32 = 7;
+pub(crate) const KEY_Y: u32 = 16;
+pub(crate) const KEY_Z: u32 = 6;
 
-pub(crate) const KEY_LEFT_BRACKET: u16 = 33;
-pub(crate) const KEY_RIGHT_BRACKET: u16 = 30;
-pub(crate) const KEY_DOT: u16 = 47;
-pub(crate) const KEY_BACKQUOTE: u16 = 50;
-pub(crate) const KEY_MINUS: u16 = 27;
-pub(crate) const KEY_EQUALS: u16 = 24;
-pub(crate) const KEY_BACK_SLASH: u16 = 42;
-pub(crate) const KEY_SEMICOLON: u16 = 41;
-pub(crate) const KEY_QUOTE: u16 = 39;
-pub(crate) const KEY_COMMA: u16 = 43;
-pub(crate) const KEY_SLASH: u16 = 44;
+pub(crate) const KEY_1: u32 = 18;
+pub(crate) const KEY_2: u32 = 19;
+pub(crate) const KEY_3: u32 = 20;
+pub(crate) const KEY_4: u32 = 21;
+pub(crate) const KEY_5: u32 = 23;
+pub(crate) const KEY_6: u32 = 22;
+pub(crate) const KEY_7: u32 = 26;
+pub(crate) const KEY_8: u32 = 28;
+pub(crate) const KEY_9: u32 = 25;
+pub(crate) const KEY_0: u32 = 29;
+
+pub(crate) const KEY_LEFT_BRACKET: u32 = 33;
+pub(crate) const KEY_RIGHT_BRACKET: u32 = 30;
+pub(crate) const KEY_DOT: u32 = 47;
+pub(crate) const KEY_BACKQUOTE: u32 = 50;
+pub(crate) const KEY_MINUS: u32 = 27;
+pub(crate) const KEY_EQUALS: u32 = 24;
+pub(crate) const KEY_BACK_SLASH: u32 = 42;
+pub(crate) const KEY_SEMICOLON: u32 = 41;
+pub(crate) const KEY_QUOTE: u32 = 39;
+pub(crate) const KEY_COMMA: u32 = 43;
+pub(crate) const KEY_SLASH: u32 = 44;
 
 /// A code no table or rule matches, used for keys the engine does not know.
-pub(crate) const KEY_OTHER: u16 = 0xFF;
+pub(crate) const KEY_OTHER: u32 = 0xFF;
 
-const LETTERS: [(char, u16); 26] = [
+const LETTERS: [(char, u32); 26] = [
     ('a', KEY_A),
     ('b', KEY_B),
     ('c', KEY_C),
@@ -97,7 +99,7 @@ const LETTERS: [(char, u16); 26] = [
 ];
 
 /// `(code, unshifted, shifted)` for the digit row and US punctuation.
-const SYMBOLS: [(u16, char, char); 21] = [
+const SYMBOLS: [(u32, char, char); 21] = [
     (KEY_1, '1', '!'),
     (KEY_2, '2', '@'),
     (KEY_3, '3', '#'),
@@ -190,7 +192,7 @@ impl Key {
         }
     }
 
-    pub(crate) fn code(self) -> u16 {
+    pub(crate) fn code(self) -> u32 {
         match self {
             Self::Letter(letter) => LETTERS
                 .iter()
@@ -221,7 +223,7 @@ impl Key {
         }
     }
 
-    pub(crate) fn from_code(code: u16) -> Self {
+    pub(crate) fn from_code(code: u32) -> Self {
         if let Some(&(letter, _)) = LETTERS.iter().find(|entry| entry.1 == code) {
             return Self::Letter(letter);
         }
@@ -244,6 +246,26 @@ impl Key {
             _ => Self::Other,
         }
     }
+}
+
+/// The character typed by `data`, a key code optionally combined with
+/// `CAPS_MASK`. Any other flag means there is no such character.
+pub(crate) fn key_code_to_character(data: u32) -> Option<char> {
+    let shift = data & CAPS_MASK != 0;
+    let code = data & !CAPS_MASK;
+    if code == KEY_SPACE {
+        return (!shift).then_some(' ');
+    }
+    match Key::from_code(code) {
+        key @ (Key::Letter(_) | Key::Digit(_) | Key::Symbol(_)) => key.to_char(shift),
+        _ => None,
+    }
+}
+
+/// The encoded key (`code | CAPS_MASK` when shifted) that types `value`.
+pub(crate) fn character_to_key_code(value: char) -> Option<u32> {
+    let (key, shift) = Key::from_char(value)?;
+    Some(key.code() | if shift { CAPS_MASK } else { 0 })
 }
 
 /// One key press as delivered to [`crate::Engine::handle_key`].
@@ -289,6 +311,18 @@ mod tests {
             assert_eq!(key.to_char(shift), Some(value), "{value:?}");
             assert_eq!(Key::from_code(key.code()), key, "{value:?}");
         }
+    }
+
+    #[test]
+    fn converts_encoded_keys_to_characters() {
+        assert_eq!(key_code_to_character(KEY_A), Some('a'));
+        assert_eq!(key_code_to_character(KEY_A | CAPS_MASK), Some('A'));
+        assert_eq!(key_code_to_character(KEY_1 | CAPS_MASK), Some('!'));
+        assert_eq!(key_code_to_character(KEY_SPACE), Some(' '));
+        assert_eq!(key_code_to_character(KEY_SPACE | CAPS_MASK), None);
+        assert_eq!(key_code_to_character(KEY_RETURN), None);
+        assert_eq!(key_code_to_character(KEY_A | 0x2_0000), None);
+        assert_eq!(character_to_key_code('?'), Some(KEY_SLASH | CAPS_MASK));
     }
 
     #[test]

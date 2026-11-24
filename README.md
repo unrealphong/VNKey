@@ -78,4 +78,4 @@ fail-open so the physical keyboard remains usable.
 
 ## License and attribution
 
-VNKey is licensed under GPL-3.0-only.
+VNKey is licensed under GPL-3.0-only; see `LICENSE` and `NOTICE`.
