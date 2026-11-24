@@ -8,6 +8,11 @@ pub struct SmartSwitch {
 }
 
 impl SmartSwitch {
+    #[must_use]
+    pub fn current(&self) -> Option<&str> {
+        self.current.as_deref()
+    }
+
     /// Records that `app` is now in front. Stores the mode of the previous
     /// application and returns the remembered mode of `app`, if any.
     pub fn app_changed(

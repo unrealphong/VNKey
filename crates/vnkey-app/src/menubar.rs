@@ -1,21 +1,30 @@
 use std::{
     cell::RefCell,
-    process::{self, ExitCode},
+    env,
+    process::{self, Child, Command, ExitCode},
     sync::{Arc, Mutex},
 };
 
+use dispatch2::DispatchQueue;
 use objc2::MainThreadMarker;
 use objc2_app_kit::{NSApplication, NSApplicationActivationPolicy};
 use tray_icon::{
     TrayIcon, TrayIconBuilder,
-    menu::{CheckMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem},
+    menu::{
+        CheckMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem,
+        accelerator::{Accelerator, Code, Modifiers},
+    },
 };
-use vnkey_engine::{Engine, InputType};
+use vnkey_engine::InputType;
+
+use crate::session::Session;
 
 const TOGGLE_ID: &str = "toggle";
 const TELEX_ID: &str = "telex";
 const VNI_ID: &str = "vni";
+const SETTINGS_ID: &str = "settings";
 const QUIT_ID: &str = "quit";
+const SETTINGS_PROGRAM: &str = "vnkey-settings";
 
 struct Ui {
     tray: TrayIcon,
@@ -42,7 +51,9 @@ thread_local! {
     static UI: RefCell<Option<Ui>> = const { RefCell::new(None) };
 }
 
-pub fn run(engine: Arc<Mutex<Engine>>) -> ExitCode {
+static SETTINGS_WINDOW: Mutex<Option<Child>> = Mutex::new(None);
+
+pub fn run(session: Arc<Mutex<Session>>) -> ExitCode {
     let Some(mtm) = MainThreadMarker::new() else {
         eprintln!("The menu bar must run on the main thread.");
         return ExitCode::FAILURE;
@@ -50,10 +61,16 @@ pub fn run(engine: Arc<Mutex<Engine>>) -> ExitCode {
     let app = NSApplication::sharedApplication(mtm);
     app.setActivationPolicy(NSApplicationActivationPolicy::Accessory);
 
-    let (enabled, method) = settings(&engine);
+    let (enabled, method) = current(&session);
     let toggle = CheckMenuItem::with_id(TOGGLE_ID, "Gõ tiếng Việt", true, enabled, None);
     let telex = CheckMenuItem::with_id(TELEX_ID, "Telex", true, method == InputType::Telex, None);
     let vni = CheckMenuItem::with_id(VNI_ID, "VNI", true, method == InputType::Vni, None);
+    let settings = MenuItem::with_id(
+        SETTINGS_ID,
+        "Cài đặt…",
+        true,
+        Some(Accelerator::new(Modifiers::META, Code::Comma)),
+    );
     let quit = MenuItem::with_id(QUIT_ID, "Thoát VNKey", true, None);
     let menu = Menu::new();
     if let Err(error) = menu.append_items(&[
@@ -62,6 +79,7 @@ pub fn run(engine: Arc<Mutex<Engine>>) -> ExitCode {
         &telex,
         &vni,
         &PredefinedMenuItem::separator(),
+        &settings,
         &quit,
     ]) {
         eprintln!("Cannot build the menu bar menu: {error}");
@@ -90,30 +108,19 @@ pub fn run(engine: Arc<Mutex<Engine>>) -> ExitCode {
     });
 
     MenuEvent::set_event_handler(Some(move |event: MenuEvent| {
-        handle_menu(&event, &engine);
+        handle_menu(&event, &session);
     }));
     app.run();
     ExitCode::SUCCESS
 }
 
-fn handle_menu(event: &MenuEvent, engine: &Mutex<Engine>) {
-    if event.id == QUIT_ID {
-        process::exit(0);
-    }
-    {
-        let Ok(mut engine) = engine.lock() else {
-            return;
-        };
-        if event.id == TOGGLE_ID {
-            let enabled = !engine.is_vietnamese();
-            engine.set_vietnamese(enabled);
-        } else if event.id == TELEX_ID {
-            set_input_type(&mut engine, InputType::Telex);
-        } else if event.id == VNI_ID {
-            set_input_type(&mut engine, InputType::Vni);
-        }
-    }
-    let (enabled, method) = settings(engine);
+/// Refreshes the menu bar from any thread.
+pub fn refresh_later(session: Arc<Mutex<Session>>) {
+    DispatchQueue::main().exec_async(move || refresh(&session));
+}
+
+fn refresh(session: &Mutex<Session>) {
+    let (enabled, method) = current(session);
     UI.with_borrow(|ui| {
         if let Some(ui) = ui {
             ui.refresh(enabled, method);
@@ -121,16 +128,59 @@ fn handle_menu(event: &MenuEvent, engine: &Mutex<Engine>) {
     });
 }
 
-fn settings(engine: &Mutex<Engine>) -> (bool, InputType) {
-    engine.lock().map_or((true, InputType::Telex), |engine| {
-        (engine.is_vietnamese(), engine.config().input_type)
-    })
+fn handle_menu(event: &MenuEvent, session: &Mutex<Session>) {
+    if event.id == QUIT_ID {
+        process::exit(0);
+    }
+    if event.id == SETTINGS_ID {
+        open_settings();
+        return;
+    }
+    if let Ok(mut session) = session.lock() {
+        if event.id == TOGGLE_ID {
+            session.toggle_vietnamese();
+        } else if event.id == TELEX_ID {
+            session.set_input_type(InputType::Telex);
+        } else if event.id == VNI_ID {
+            session.set_input_type(InputType::Vni);
+        }
+    }
+    refresh(session);
 }
 
-fn set_input_type(engine: &mut Engine, input_type: InputType) {
-    let mut config = engine.config().clone();
-    config.input_type = input_type;
-    engine.set_config(config);
+/// Starts the settings window, or brings the running one to the front.
+fn open_settings() {
+    let Ok(mut window) = SETTINGS_WINDOW.lock() else {
+        return;
+    };
+    if let Some(child) = window.as_mut() {
+        if matches!(child.try_wait(), Ok(None)) {
+            if let Err(error) = Command::new("/bin/kill")
+                .args(["-USR1", &child.id().to_string()])
+                .status()
+            {
+                eprintln!("Cannot reach the settings window: {error}");
+            }
+            return;
+        }
+    }
+    let program = env::current_exe()
+        .ok()
+        .and_then(|exe| Some(exe.parent()?.join(SETTINGS_PROGRAM)));
+    let Some(program) = program else {
+        eprintln!("Cannot locate {SETTINGS_PROGRAM}.");
+        return;
+    };
+    match Command::new(&program).spawn() {
+        Ok(child) => *window = Some(child),
+        Err(error) => eprintln!("Cannot start {}: {error}", program.display()),
+    }
+}
+
+fn current(session: &Mutex<Session>) -> (bool, InputType) {
+    session.lock().map_or((true, InputType::Telex), |session| {
+        (session.is_vietnamese(), session.input_type())
+    })
 }
 
 fn method_name(method: InputType) -> &'static str {

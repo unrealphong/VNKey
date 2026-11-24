@@ -1,6 +1,9 @@
+mod frontmost;
 mod hotkey;
 #[cfg(target_os = "macos")]
 mod menubar;
+mod reload;
+mod session;
 mod settings;
 mod smart_switch;
 mod state;
@@ -13,11 +16,16 @@ use std::{
     time::Duration,
 };
 
-use enigo::{Direction, Enigo, Keyboard, Settings};
+use enigo::{Direction, Enigo, Keyboard};
 use inputs::{
     Event, EventDisposition, EventKind, GrabMode, KeyCode, KeyEvent, Listener, PressState,
 };
 use vnkey_engine::{Config, Engine, InputType, Key, KeyInput, Output};
+
+use crate::{session::Session, settings::Paths};
+
+/// Called after the Vietnamese/English mode or the settings change.
+type Notify = Arc<dyn Fn() + Send + Sync>;
 
 const LETTER_KEYS: [KeyCode; 26] = [
     KeyCode::KeyA,
@@ -79,7 +87,7 @@ fn main() -> ExitCode {
     let mut args = env::args().skip(1);
     match args.next().as_deref() {
         Some("convert") => {
-            let input_type = parse_input_type(args.next().as_deref());
+            let input_type = parse_input_type(args.next().as_deref()).unwrap_or_default();
             let input = args.collect::<Vec<_>>().join(" ");
             println!("{}", convert(input_type, &input));
             ExitCode::SUCCESS
@@ -90,33 +98,48 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         #[cfg(target_os = "macos")]
-        None => run_menu_bar(InputType::Telex),
+        None => run_menu_bar(),
         _ => print_help(),
     }
 }
 
-fn parse_input_type(name: Option<&str>) -> InputType {
-    match name {
-        Some("vni") => InputType::Vni,
-        Some("simple1") => InputType::SimpleTelex1,
-        Some("simple2") => InputType::SimpleTelex2,
+fn parse_input_type(name: Option<&str>) -> Option<InputType> {
+    Some(match name? {
+        "vni" => InputType::Vni,
+        "simple1" => InputType::SimpleTelex1,
+        "simple2" => InputType::SimpleTelex2,
         _ => InputType::Telex,
-    }
-}
-
-fn new_engine(input_type: InputType) -> Engine {
-    Engine::new(Config {
-        input_type,
-        ..Config::default()
     })
 }
 
-fn run_daemon(input_type: InputType) -> ExitCode {
+fn new_session() -> Arc<Mutex<Session>> {
+    let paths = Paths::default_location();
+    if paths.is_none() {
+        eprintln!("No home directory; settings will not be saved.");
+    }
+    Arc::new(Mutex::new(Session::new(paths)))
+}
+
+fn watch_settings(session: &Arc<Mutex<Session>>, notify: &Notify) {
+    if let Some(paths) = Paths::default_location() {
+        let notify = Arc::clone(notify);
+        reload::spawn(Arc::clone(session), paths, move || notify());
+    }
+}
+
+fn run_daemon(input_type: Option<InputType>) -> ExitCode {
     if cfg!(target_os = "macos") {
         inputs::request_permission();
     }
-    let engine = Arc::new(Mutex::new(new_engine(input_type)));
-    let listener = match start_listener(&engine) {
+    let session = new_session();
+    if let Some(input_type) = input_type {
+        if let Ok(mut session) = session.lock() {
+            session.use_input_type(input_type);
+        }
+    }
+    let notify: Notify = Arc::new(|| {});
+    watch_settings(&session, &notify);
+    let listener = match start_listener(&session, &notify) {
         Ok(value) => value,
         Err(error) => {
             eprintln!("{error}");
@@ -125,7 +148,7 @@ fn run_daemon(input_type: InputType) -> ExitCode {
         }
     };
 
-    println!("VNKey is active ({input_type:?}). Press Ctrl+C to stop.");
+    println!("VNKey is active. Press Ctrl+C to stop.");
     wait_while_healthy(&listener);
     eprintln!("The keyboard listener stopped unexpectedly.");
     ExitCode::FAILURE
@@ -134,19 +157,23 @@ fn run_daemon(input_type: InputType) -> ExitCode {
 /// Runs the menu bar UI on the main thread while keyboard capture starts in
 /// the background as soon as Accessibility permission is granted.
 #[cfg(target_os = "macos")]
-fn run_menu_bar(input_type: InputType) -> ExitCode {
-    let engine = Arc::new(Mutex::new(new_engine(input_type)));
-    let input_engine = Arc::clone(&engine);
-    thread::spawn(move || serve_input(&input_engine));
-    menubar::run(engine)
+fn run_menu_bar() -> ExitCode {
+    let session = new_session();
+    let refresh_session = Arc::clone(&session);
+    let notify: Notify = Arc::new(move || menubar::refresh_later(Arc::clone(&refresh_session)));
+    watch_settings(&session, &notify);
+    let input_session = Arc::clone(&session);
+    let input_notify = Arc::clone(&notify);
+    thread::spawn(move || serve_input(&input_session, &input_notify));
+    menubar::run(session)
 }
 
 #[cfg(target_os = "macos")]
-fn serve_input(engine: &Arc<Mutex<Engine>>) {
+fn serve_input(session: &Arc<Mutex<Session>>, notify: &Notify) {
     inputs::request_permission();
     loop {
         if inputs::permission_status() == inputs::PermissionStatus::Granted {
-            match start_listener(engine) {
+            match start_listener(session, notify) {
                 Ok(listener) => {
                     wait_while_healthy(&listener);
                     eprintln!("The keyboard listener stopped; restarting.");
@@ -158,14 +185,15 @@ fn serve_input(engine: &Arc<Mutex<Engine>>) {
     }
 }
 
-fn start_listener(engine: &Arc<Mutex<Engine>>) -> Result<Listener, String> {
-    let keyboard = Enigo::new(&Settings::default())
+fn start_listener(session: &Arc<Mutex<Session>>, notify: &Notify) -> Result<Listener, String> {
+    let keyboard = Enigo::new(&enigo::Settings::default())
         .map_err(|error| format!("Cannot initialize keyboard output: {error}"))?;
     let keyboard = Mutex::new(keyboard);
-    let engine = Arc::clone(engine);
+    let session = Arc::clone(session);
+    let notify = Arc::clone(notify);
     inputs::Listener::builder()
         .grab_mode(GrabMode::Force)
-        .start(move |event: &Event| handle_event(event, &engine, &keyboard))
+        .start(move |event: &Event| handle_event(event, &session, &keyboard, &notify))
         .map_err(|error| format!("Cannot capture keyboard input: {error}"))
 }
 
@@ -185,36 +213,47 @@ fn print_help() -> ExitCode {
 
 fn handle_event(
     event: &Event,
-    engine: &Mutex<Engine>,
+    session: &Mutex<Session>,
     keyboard: &Mutex<Enigo>,
+    notify: &Notify,
 ) -> EventDisposition {
     if event.injected {
         return EventDisposition::Pass;
     }
     let key = match &event.kind {
-        EventKind::Key(key) if key.state == PressState::Pressed => key,
+        EventKind::Key(key) => key,
         EventKind::Button(button) if button.state == PressState::Pressed => {
-            if let Ok(mut engine) = engine.lock() {
-                engine.handle_mouse_down();
+            if let Ok(mut session) = session.lock() {
+                session.handle_mouse_down();
             }
             return EventDisposition::Pass;
         }
         _ => return EventDisposition::Pass,
     };
-    let Some(input) = key_input(key) else {
+    let pressed = key.state == PressState::Pressed;
+    let input = if pressed { key_input(key) } else { None };
+    let app = if pressed {
+        frontmost::bundle_id()
+    } else {
+        None
+    };
+    let Ok(mut locked) = session.lock() else {
         return EventDisposition::Pass;
     };
-    let Ok(mut engine) = engine.try_lock() else {
-        return EventDisposition::Pass;
-    };
-    let output = engine.handle_key(input);
-    drop(engine);
+    let outcome = locked.handle_key(key.code(), pressed, input, app.as_deref());
+    drop(locked);
+    if outcome.mode_changed {
+        notify();
+    }
+    if outcome.suppress {
+        return EventDisposition::Suppress;
+    }
 
     let Output::Replace {
         backspaces,
         text,
         then,
-    } = output
+    } = outcome.output
     else {
         return EventDisposition::Pass;
     };
@@ -312,7 +351,10 @@ fn physical_key(code: KeyCode) -> Option<Key> {
 
 /// Types `input` into an empty text field, one key per character.
 fn convert(input_type: InputType, input: &str) -> String {
-    let mut engine = new_engine(input_type);
+    let mut engine = Engine::new(Config {
+        input_type,
+        ..Config::default()
+    });
     let mut output = String::new();
     for value in input.chars() {
         let Some(input) = KeyInput::from_char(value) else {
