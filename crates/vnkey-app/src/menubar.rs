@@ -10,7 +10,7 @@ use tray_icon::{
     TrayIcon, TrayIconBuilder,
     menu::{CheckMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem},
 };
-use vnkey_engine::legacy::{Engine, InputMethod};
+use vnkey_engine::{Engine, InputType};
 
 const TOGGLE_ID: &str = "toggle";
 const TELEX_ID: &str = "telex";
@@ -25,14 +25,14 @@ struct Ui {
 }
 
 impl Ui {
-    fn refresh(&self, enabled: bool, method: InputMethod) {
+    fn refresh(&self, enabled: bool, method: InputType) {
         self.tray.set_title(Some(title(enabled)));
         if let Err(error) = self.tray.set_tooltip(Some(tooltip(enabled, method))) {
             eprintln!("Cannot update the menu bar tooltip: {error}");
         }
         self.toggle.set_checked(enabled);
-        self.telex.set_checked(method == InputMethod::Telex);
-        self.vni.set_checked(method == InputMethod::Vni);
+        self.telex.set_checked(method == InputType::Telex);
+        self.vni.set_checked(method == InputType::Vni);
     }
 }
 
@@ -52,8 +52,8 @@ pub fn run(engine: Arc<Mutex<Engine>>) -> ExitCode {
 
     let (enabled, method) = settings(&engine);
     let toggle = CheckMenuItem::with_id(TOGGLE_ID, "Gõ tiếng Việt", true, enabled, None);
-    let telex = CheckMenuItem::with_id(TELEX_ID, "Telex", true, method == InputMethod::Telex, None);
-    let vni = CheckMenuItem::with_id(VNI_ID, "VNI", true, method == InputMethod::Vni, None);
+    let telex = CheckMenuItem::with_id(TELEX_ID, "Telex", true, method == InputType::Telex, None);
+    let vni = CheckMenuItem::with_id(VNI_ID, "VNI", true, method == InputType::Vni, None);
     let quit = MenuItem::with_id(QUIT_ID, "Thoát VNKey", true, None);
     let menu = Menu::new();
     if let Err(error) = menu.append_items(&[
@@ -105,12 +105,12 @@ fn handle_menu(event: &MenuEvent, engine: &Mutex<Engine>) {
             return;
         };
         if event.id == TOGGLE_ID {
-            let enabled = !engine.is_enabled();
-            engine.set_enabled(enabled);
+            let enabled = !engine.is_vietnamese();
+            engine.set_vietnamese(enabled);
         } else if event.id == TELEX_ID {
-            engine.set_method(InputMethod::Telex);
+            set_input_type(&mut engine, InputType::Telex);
         } else if event.id == VNI_ID {
-            engine.set_method(InputMethod::Vni);
+            set_input_type(&mut engine, InputType::Vni);
         }
     }
     let (enabled, method) = settings(engine);
@@ -121,19 +121,33 @@ fn handle_menu(event: &MenuEvent, engine: &Mutex<Engine>) {
     });
 }
 
-fn settings(engine: &Mutex<Engine>) -> (bool, InputMethod) {
-    engine.lock().map_or((true, InputMethod::Telex), |engine| {
-        (engine.is_enabled(), engine.method())
+fn settings(engine: &Mutex<Engine>) -> (bool, InputType) {
+    engine.lock().map_or((true, InputType::Telex), |engine| {
+        (engine.is_vietnamese(), engine.config().input_type)
     })
+}
+
+fn set_input_type(engine: &mut Engine, input_type: InputType) {
+    let mut config = engine.config().clone();
+    config.input_type = input_type;
+    engine.set_config(config);
+}
+
+fn method_name(method: InputType) -> &'static str {
+    match method {
+        InputType::Telex => "Telex",
+        InputType::Vni => "VNI",
+        InputType::SimpleTelex1 | InputType::SimpleTelex2 => "Simple Telex",
+    }
 }
 
 fn title(enabled: bool) -> &'static str {
     if enabled { "V" } else { "E" }
 }
 
-fn tooltip(enabled: bool, method: InputMethod) -> String {
+fn tooltip(enabled: bool, method: InputType) -> String {
     if enabled {
-        format!("VNKey: Tiếng Việt ({method:?})")
+        format!("VNKey: Tiếng Việt ({})", method_name(method))
     } else {
         "VNKey: English".to_owned()
     }

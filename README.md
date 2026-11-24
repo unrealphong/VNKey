@@ -5,9 +5,12 @@ Linux.
 
 ## Features
 
-- Pure Rust, stateful Telex and VNI engine
-- Correct tone placement for common Vietnamese vowel groups
-- Composition-aware Backspace
+- Pure Rust engine with Telex, VNI and Simple Telex input
+- Modern or classic tone placement, free tone marking, and edits anywhere in
+  the current word (type `tieng` then `e` to get `tiêng`)
+- Spell checking that restores the typed keys for non-Vietnamese words
+- Quick Telex and quick consonant shortcuts
+- Unicode, TCVN3, VNI Windows, Unicode Compound and CP1258 output
 - User-defined text macros through the engine API
 - Native global keyboard interception on macOS and Linux
 - Linux support at the `evdev`/`uinput` layer, independent of X11 or Wayland
@@ -48,6 +51,7 @@ Start the input daemon:
 vnkey daemon telex
 # or
 vnkey daemon vni
+# or simple1 / simple2 for Simple Telex
 ```
 
 ### macOS permission

@@ -9,12 +9,11 @@ use std::{
     time::Duration,
 };
 
-use enigo::{Direction, Enigo, Key, Keyboard, Settings};
+use enigo::{Direction, Enigo, Keyboard, Settings};
 use inputs::{
-    Event, EventDisposition, EventKind, GrabMode, KeyCode, KeyEvent, Listener, LogicalKey,
-    PressState,
+    Event, EventDisposition, EventKind, GrabMode, KeyCode, KeyEvent, Listener, PressState,
 };
-use vnkey_engine::legacy::{Engine, InputMethod};
+use vnkey_engine::{Config, Engine, InputType, Key, KeyInput, Output};
 
 const LETTER_KEYS: [KeyCode; 26] = [
     KeyCode::KeyA,
@@ -58,40 +57,61 @@ const DIGIT_KEYS: [KeyCode; 10] = [
     KeyCode::Digit9,
 ];
 
+const SYMBOL_KEYS: [(KeyCode, char); 11] = [
+    (KeyCode::Backquote, '`'),
+    (KeyCode::Minus, '-'),
+    (KeyCode::Equal, '='),
+    (KeyCode::BracketLeft, '['),
+    (KeyCode::BracketRight, ']'),
+    (KeyCode::Backslash, '\\'),
+    (KeyCode::Semicolon, ';'),
+    (KeyCode::Quote, '\''),
+    (KeyCode::Comma, ','),
+    (KeyCode::Period, '.'),
+    (KeyCode::Slash, '/'),
+];
+
 fn main() -> ExitCode {
     let mut args = env::args().skip(1);
     match args.next().as_deref() {
         Some("convert") => {
-            let method = match args.next().as_deref() {
-                Some("vni") => InputMethod::Vni,
-                _ => InputMethod::Telex,
-            };
+            let input_type = parse_input_type(args.next().as_deref());
             let input = args.collect::<Vec<_>>().join(" ");
-            println!("{}", convert(method, &input));
+            println!("{}", convert(input_type, &input));
             ExitCode::SUCCESS
         }
-        Some("daemon") => {
-            let method = match args.next().as_deref() {
-                Some("vni") => InputMethod::Vni,
-                _ => InputMethod::Telex,
-            };
-            run_daemon(method)
-        }
+        Some("daemon") => run_daemon(parse_input_type(args.next().as_deref())),
         Some("permissions") => {
             println!("{:?}", inputs::permission_status());
             ExitCode::SUCCESS
         }
         #[cfg(target_os = "macos")]
-        None => run_menu_bar(InputMethod::Telex),
+        None => run_menu_bar(InputType::Telex),
         _ => print_help(),
     }
 }
 
-fn run_daemon(method: InputMethod) -> ExitCode {
+fn parse_input_type(name: Option<&str>) -> InputType {
+    match name {
+        Some("vni") => InputType::Vni,
+        Some("simple1") => InputType::SimpleTelex1,
+        Some("simple2") => InputType::SimpleTelex2,
+        _ => InputType::Telex,
+    }
+}
+
+fn new_engine(input_type: InputType) -> Engine {
+    Engine::new(Config {
+        input_type,
+        ..Config::default()
+    })
+}
+
+fn run_daemon(input_type: InputType) -> ExitCode {
     if cfg!(target_os = "macos") {
         inputs::request_permission();
     }
-    let engine = Arc::new(Mutex::new(Engine::new(method)));
+    let engine = Arc::new(Mutex::new(new_engine(input_type)));
     let listener = match start_listener(&engine) {
         Ok(value) => value,
         Err(error) => {
@@ -101,7 +121,7 @@ fn run_daemon(method: InputMethod) -> ExitCode {
         }
     };
 
-    println!("VNKey is active ({method:?}). Press Ctrl+C to stop.");
+    println!("VNKey is active ({input_type:?}). Press Ctrl+C to stop.");
     wait_while_healthy(&listener);
     eprintln!("The keyboard listener stopped unexpectedly.");
     ExitCode::FAILURE
@@ -110,8 +130,8 @@ fn run_daemon(method: InputMethod) -> ExitCode {
 /// Runs the menu bar UI on the main thread while keyboard capture starts in
 /// the background as soon as Accessibility permission is granted.
 #[cfg(target_os = "macos")]
-fn run_menu_bar(method: InputMethod) -> ExitCode {
-    let engine = Arc::new(Mutex::new(Engine::new(method)));
+fn run_menu_bar(input_type: InputType) -> ExitCode {
+    let engine = Arc::new(Mutex::new(new_engine(input_type)));
     let input_engine = Arc::clone(&engine);
     thread::spawn(move || serve_input(&input_engine));
     menubar::run(engine)
@@ -153,8 +173,8 @@ fn wait_while_healthy(listener: &Listener) {
 
 fn print_help() -> ExitCode {
     println!("VNKey {}", env!("CARGO_PKG_VERSION"));
-    println!("Usage: vnkey convert [telex|vni] <text>");
-    println!("       vnkey daemon [telex|vni]");
+    println!("Usage: vnkey convert [telex|vni|simple1|simple2] <text>");
+    println!("       vnkey daemon [telex|vni|simple1|simple2]");
     println!("       vnkey permissions");
     ExitCode::SUCCESS
 }
@@ -167,82 +187,148 @@ fn handle_event(
     if event.injected {
         return EventDisposition::Pass;
     }
-    let EventKind::Key(key) = &event.kind else {
+    let key = match &event.kind {
+        EventKind::Key(key) if key.state == PressState::Pressed => key,
+        EventKind::Button(button) if button.state == PressState::Pressed => {
+            if let Ok(mut engine) = engine.lock() {
+                engine.handle_mouse_down();
+            }
+            return EventDisposition::Pass;
+        }
+        _ => return EventDisposition::Pass,
+    };
+    let Some(input) = key_input(key) else {
         return EventDisposition::Pass;
     };
-    if key.state != PressState::Pressed {
-        return EventDisposition::Pass;
-    }
     let Ok(mut engine) = engine.try_lock() else {
         return EventDisposition::Pass;
     };
-    if !engine.is_enabled() {
-        return EventDisposition::Pass;
-    }
-
-    let edit = if key.modifiers.control || key.modifiers.alt || key.modifiers.meta {
-        None
-    } else if key.code() == Some(KeyCode::Backspace) {
-        Some(engine.backspace())
-    } else {
-        typed_char(key).map(|value| engine.push(value))
-    };
-    let Some(edit) = edit else {
-        engine.reset();
-        return EventDisposition::Pass;
-    };
+    let output = engine.handle_key(input);
     drop(engine);
 
-    let Ok(mut keyboard) = keyboard.try_lock() else {
+    let Output::Replace {
+        backspaces,
+        text,
+        then,
+    } = output
+    else {
         return EventDisposition::Pass;
     };
-    for _ in 0..edit.delete_chars {
-        if keyboard.key(Key::Backspace, Direction::Click).is_err() {
-            return EventDisposition::Pass;
-        }
-    }
-    if !edit.insert.is_empty() && keyboard.text(&edit.insert).is_err() {
+    let Ok(mut keyboard) = keyboard.lock() else {
         return EventDisposition::Pass;
+    };
+    if let Err(error) = send(&mut keyboard, backspaces, &text, then) {
+        eprintln!("Cannot send keys: {error}");
     }
     EventDisposition::Suppress
 }
 
-/// The character a key press types. Backends that do not resolve the layout
-/// (`logical` is `None`) are read as a US QWERTY layout.
-fn typed_char(key: &KeyEvent) -> Option<char> {
-    if let Some(LogicalKey::Character(text)) = &key.logical {
-        let mut chars = text.chars();
-        return match (chars.next(), chars.next()) {
-            (Some(value), None) => Some(value),
-            _ => None,
-        };
+fn send(
+    keyboard: &mut Enigo,
+    backspaces: usize,
+    text: &str,
+    then: Option<Key>,
+) -> Result<(), enigo::InputError> {
+    for _ in 0..backspaces {
+        keyboard.key(enigo::Key::Backspace, Direction::Click)?;
     }
-    let code = key.code()?;
-    if let Some(index) = LETTER_KEYS.iter().position(|&letter| letter == code) {
-        let letter = char::from_digit(u32::try_from(index).ok()? + 10, 36)?;
-        let uppercase = key.modifiers.shift != key.modifiers.caps_lock;
-        return Some(if uppercase {
-            letter.to_ascii_uppercase()
-        } else {
-            letter
-        });
+    if !text.is_empty() {
+        keyboard.text(text)?;
     }
-    if key.modifiers.shift {
-        return None;
+    if let Some(key) = then.and_then(control_key) {
+        keyboard.key(key, Direction::Click)?;
     }
-    let index = DIGIT_KEYS.iter().position(|&digit| digit == code)?;
-    char::from_digit(u32::try_from(index).ok()?, 10)
+    Ok(())
 }
 
-fn convert(method: InputMethod, input: &str) -> String {
-    let mut engine = Engine::new(method);
+fn control_key(key: Key) -> Option<enigo::Key> {
+    Some(match key {
+        Key::Backspace => enigo::Key::Backspace,
+        Key::Enter => enigo::Key::Return,
+        Key::Tab => enigo::Key::Tab,
+        Key::Escape => enigo::Key::Escape,
+        Key::Left => enigo::Key::LeftArrow,
+        Key::Right => enigo::Key::RightArrow,
+        Key::Up => enigo::Key::UpArrow,
+        Key::Down => enigo::Key::DownArrow,
+        _ => return None,
+    })
+}
+
+/// The engine input for a key press, read as a US QWERTY layout. Modifier
+/// keys on their own are not reported.
+fn key_input(event: &KeyEvent) -> Option<KeyInput> {
+    let key = match event.code() {
+        None => Key::Other,
+        Some(code) => physical_key(code)?,
+    };
+    let modifiers = event.modifiers;
+    Some(KeyInput {
+        key,
+        shift: modifiers.shift,
+        caps_lock: modifiers.caps_lock,
+        other_modifier: modifiers.control || modifiers.alt || modifiers.meta,
+    })
+}
+
+fn physical_key(code: KeyCode) -> Option<Key> {
+    if let Some(index) = LETTER_KEYS.iter().position(|&letter| letter == code) {
+        let letter = char::from_digit(u32::try_from(index).ok()? + 10, 36)?;
+        return Some(Key::Letter(letter));
+    }
+    if let Some(digit) = DIGIT_KEYS.iter().position(|&digit| digit == code) {
+        return Some(Key::Digit(u8::try_from(digit).ok()?));
+    }
+    if let Some(&(_, symbol)) = SYMBOL_KEYS.iter().find(|entry| entry.0 == code) {
+        return Some(Key::Symbol(symbol));
+    }
+    Some(match code {
+        KeyCode::Space => Key::Space,
+        KeyCode::Backspace => Key::Backspace,
+        KeyCode::Enter | KeyCode::NumpadEnter => Key::Enter,
+        KeyCode::Tab => Key::Tab,
+        KeyCode::Escape => Key::Escape,
+        KeyCode::ArrowLeft => Key::Left,
+        KeyCode::ArrowRight => Key::Right,
+        KeyCode::ArrowUp => Key::Up,
+        KeyCode::ArrowDown => Key::Down,
+        KeyCode::ShiftLeft
+        | KeyCode::ShiftRight
+        | KeyCode::ControlLeft
+        | KeyCode::ControlRight
+        | KeyCode::AltLeft
+        | KeyCode::AltRight
+        | KeyCode::MetaLeft
+        | KeyCode::MetaRight
+        | KeyCode::CapsLock
+        | KeyCode::Fn => return None,
+        _ => Key::Other,
+    })
+}
+
+/// Types `input` into an empty text field, one key per character.
+fn convert(input_type: InputType, input: &str) -> String {
+    let mut engine = new_engine(input_type);
     let mut output = String::new();
     for value in input.chars() {
-        let edit = engine.push(value);
-        for _ in 0..edit.delete_chars {
-            output.pop();
+        let Some(input) = KeyInput::from_char(value) else {
+            engine.handle_key(KeyInput::new(Key::Other));
+            output.push(value);
+            continue;
+        };
+        match engine.handle_key(input) {
+            Output::Pass => output.push(value),
+            Output::Replace {
+                backspaces,
+                text,
+                then: _,
+            } => {
+                for _ in 0..backspaces {
+                    output.pop();
+                }
+                output.push_str(&text);
+            }
         }
-        output.push_str(&edit.insert);
     }
     output
 }
@@ -253,8 +339,10 @@ mod tests {
     use inputs::{Modifiers, PhysicalKey};
 
     #[test]
-    fn converts_a_sentence() {
-        assert_eq!(convert(InputMethod::Telex, "Tooi ye **"), "Tôi ye **");
+    fn converts_sentences() {
+        assert_eq!(convert(InputType::Telex, "Tooi ye **"), "Tôi ye **");
+        assert_eq!(convert(InputType::Telex, "tienge"), "tiêng");
+        assert_eq!(convert(InputType::Vni, "Vie65t Nam"), "Việt Nam");
     }
 
     fn key(code: KeyCode, modifiers: Modifiers) -> KeyEvent {
@@ -267,61 +355,40 @@ mod tests {
         }
     }
 
+    fn plain(code: KeyCode) -> Option<KeyInput> {
+        key_input(&key(code, Modifiers::default()))
+    }
+
     #[test]
-    fn derives_letters_from_physical_keys() {
-        let shift = Modifiers {
+    fn maps_text_keys() {
+        assert_eq!(plain(KeyCode::KeyA), Some(KeyInput::new(Key::Letter('a'))));
+        assert_eq!(plain(KeyCode::KeyZ), Some(KeyInput::new(Key::Letter('z'))));
+        assert_eq!(plain(KeyCode::Digit0), Some(KeyInput::new(Key::Digit(0))));
+        assert_eq!(plain(KeyCode::Digit9), Some(KeyInput::new(Key::Digit(9))));
+        assert_eq!(
+            plain(KeyCode::BracketLeft),
+            Some(KeyInput::new(Key::Symbol('[')))
+        );
+        assert_eq!(plain(KeyCode::Space), Some(KeyInput::new(Key::Space)));
+        assert_eq!(plain(KeyCode::Enter), Some(KeyInput::new(Key::Enter)));
+        assert_eq!(plain(KeyCode::F5), Some(KeyInput::new(Key::Other)));
+    }
+
+    #[test]
+    fn ignores_lone_modifier_keys() {
+        assert_eq!(plain(KeyCode::ShiftLeft), None);
+        assert_eq!(plain(KeyCode::MetaRight), None);
+    }
+
+    #[test]
+    fn reports_modifiers() {
+        let modifiers = Modifiers {
             shift: true,
-            ..Modifiers::default()
-        };
-        let caps = Modifiers {
             caps_lock: true,
+            meta: true,
             ..Modifiers::default()
         };
-        let both = Modifiers {
-            shift: true,
-            caps_lock: true,
-            ..Modifiers::default()
-        };
-        assert_eq!(
-            typed_char(&key(KeyCode::KeyA, Modifiers::default())),
-            Some('a')
-        );
-        assert_eq!(
-            typed_char(&key(KeyCode::KeyW, Modifiers::default())),
-            Some('w')
-        );
-        assert_eq!(typed_char(&key(KeyCode::KeyZ, shift)), Some('Z'));
-        assert_eq!(typed_char(&key(KeyCode::KeyD, caps)), Some('D'));
-        assert_eq!(typed_char(&key(KeyCode::KeyD, both)), Some('d'));
-    }
-
-    #[test]
-    fn derives_unshifted_digits_only() {
-        let shift = Modifiers {
-            shift: true,
-            ..Modifiers::default()
-        };
-        assert_eq!(
-            typed_char(&key(KeyCode::Digit0, Modifiers::default())),
-            Some('0')
-        );
-        assert_eq!(
-            typed_char(&key(KeyCode::Digit9, Modifiers::default())),
-            Some('9')
-        );
-        assert_eq!(typed_char(&key(KeyCode::Digit9, shift)), None);
-    }
-
-    #[test]
-    fn ignores_non_text_keys() {
-        assert_eq!(typed_char(&key(KeyCode::Space, Modifiers::default())), None);
-        assert_eq!(typed_char(&key(KeyCode::Enter, Modifiers::default())), None);
-    }
-
-    #[test]
-    fn prefers_the_logical_character() {
-        let mut event = key(KeyCode::KeyA, Modifiers::default());
-        event.logical = Some(LogicalKey::Character("q".into()));
-        assert_eq!(typed_char(&event), Some('q'));
+        let input = key_input(&key(KeyCode::KeyD, modifiers)).expect("key");
+        assert!(input.shift && input.caps_lock && input.other_modifier);
     }
 }

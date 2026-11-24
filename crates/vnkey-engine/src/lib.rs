@@ -7,7 +7,6 @@ mod charset;
 mod config;
 mod core;
 mod keys;
-pub mod legacy;
 mod macros;
 mod tables;
 mod word;
