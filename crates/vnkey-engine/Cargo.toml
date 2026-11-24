@@ -1,0 +1,11 @@
+[package]
+name = "vnkey-engine"
+description = "Pure Rust Vietnamese input engine for VNKey"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true

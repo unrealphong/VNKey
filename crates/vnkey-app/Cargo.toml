@@ -1,0 +1,16 @@
+[package]
+name = "vnkey"
+description = "VNKey Vietnamese input daemon for macOS and Linux"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+enigo = "0.6.1"
+inputs = "0.1.1"
+vnkey-engine = { path = "../vnkey-engine" }
+
+[lints]
+workspace = true
