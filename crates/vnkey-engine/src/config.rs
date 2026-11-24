@@ -1,5 +1,10 @@
 /// How Vietnamese letters and tones are typed.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(rename_all = "snake_case")
+)]
 pub enum InputType {
     #[default]
     Telex,
@@ -12,6 +17,11 @@ pub enum InputType {
 
 /// The character encoding Vietnamese letters are sent in.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(rename_all = "snake_case")
+)]
 pub enum CodeTable {
     #[default]
     Unicode,
@@ -27,6 +37,11 @@ pub enum CodeTable {
 
 /// Engine options.
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(default)
+)]
 #[allow(
     clippy::struct_excessive_bools,
     reason = "each flag is an independent user-facing setting"

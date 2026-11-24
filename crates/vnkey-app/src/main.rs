@@ -1,5 +1,9 @@
+mod hotkey;
 #[cfg(target_os = "macos")]
 mod menubar;
+mod settings;
+mod smart_switch;
+mod state;
 
 use std::{
     env,
