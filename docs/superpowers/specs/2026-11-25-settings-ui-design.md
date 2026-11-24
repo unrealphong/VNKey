@@ -93,7 +93,7 @@ Tách thành các module nhỏ, mỗi module một việc và test được riê
 | `state.rs` | `AppState` (chế độ hiện tại, chế độ theo app), đọc/ghi |
 | `hotkey.rs` | `Hotkey` và bộ nhận diện phím tắt từ chuỗi sự kiện phím |
 | `smart_switch.rs` | Logic tự chuyển: nhớ chế độ app cũ, trả về chế độ của app mới |
-| `frontmost.rs` (macOS) | Bundle id của app đang ở phía trước (`NSWorkspace`, không cần `unsafe`) |
+| `frontmost.rs` (macOS) | Bundle id của app đang ở phía trước (`NSWorkspace`, gọi trên luồng chính) |
 | `reload.rs` | Luồng theo dõi file và nạp lại cấu hình |
 | `menubar.rs` | Thêm mục "Cài đặt…" (⌘,), cập nhật tiêu đề V/E khi chế độ đổi từ luồng khác |
 | `main.rs` | Ghép các phần; chọn phím tắt trước khi đưa phím cho engine |
@@ -106,11 +106,12 @@ Phím tắt chuyển chế độ:
 - Có phím thường: bấm phím đó khi đang giữ đúng tập phím bổ trợ thì đổi chế độ
   và nuốt phím đó.
 
-Tự chuyển theo app (khi `smart_switch` bật): mỗi lần nhấn phím, `vnkey` hỏi
-bundle id của app phía trước. Nếu khác lần trước, nó lưu chế độ hiện tại cho
-app cũ vào `state.json`, rồi áp chế độ đã nhớ của app mới (app chưa gặp thì
-giữ nguyên chế độ hiện tại). Khi người dùng đổi chế độ, chế độ của app hiện
-tại được ghi nhớ ngay.
+Tự chuyển theo app (khi `smart_switch` bật): cứ 0,1 giây `vnkey` hỏi bundle id
+của app phía trước. `NSWorkspace` chỉ báo đúng trên luồng chính, nên việc hỏi
+được đẩy sang hàng đợi chính. Nếu app khác lần trước, nó lưu chế độ hiện tại
+cho app cũ vào `state.json`, rồi áp chế độ đã nhớ của app mới (app chưa gặp
+thì giữ nguyên chế độ hiện tại) và cập nhật menu bar ngay. Khi người dùng đổi
+chế độ, chế độ của app hiện tại được ghi nhớ ngay.
 
 Đổi chế độ từ luồng bắt phím: tiêu đề menu bar chỉ được sửa trên luồng chính,
 nên việc cập nhật được đẩy sang hàng đợi chính bằng crate `dispatch2`.

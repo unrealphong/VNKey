@@ -1,3 +1,4 @@
+#[cfg(target_os = "macos")]
 mod frontmost;
 mod hotkey;
 #[cfg(target_os = "macos")]
@@ -162,10 +163,39 @@ fn run_menu_bar() -> ExitCode {
     let refresh_session = Arc::clone(&session);
     let notify: Notify = Arc::new(move || menubar::refresh_later(Arc::clone(&refresh_session)));
     watch_settings(&session, &notify);
+    watch_front_app(&session, &notify);
     let input_session = Arc::clone(&session);
     let input_notify = Arc::clone(&notify);
     thread::spawn(move || serve_input(&input_session, &input_notify));
     menubar::run(session)
+}
+
+/// Applies the remembered mode as soon as another application comes to the
+/// front. `NSWorkspace` only reports the front application reliably on the
+/// main thread, so the check is queued there.
+#[cfg(target_os = "macos")]
+fn watch_front_app(session: &Arc<Mutex<Session>>, notify: &Notify) {
+    const INTERVAL: Duration = Duration::from_millis(100);
+    let session = Arc::clone(session);
+    let notify = Arc::clone(notify);
+    thread::spawn(move || {
+        loop {
+            thread::sleep(INTERVAL);
+            let session = Arc::clone(&session);
+            let notify = Arc::clone(&notify);
+            dispatch2::DispatchQueue::main().exec_async(move || {
+                let Some(app) = frontmost::bundle_id() else {
+                    return;
+                };
+                let changed = session
+                    .lock()
+                    .is_ok_and(|mut session| session.app_in_front(&app));
+                if changed {
+                    notify();
+                }
+            });
+        }
+    });
 }
 
 #[cfg(target_os = "macos")]
@@ -232,15 +262,10 @@ fn handle_event(
     };
     let pressed = key.state == PressState::Pressed;
     let input = if pressed { key_input(key) } else { None };
-    let app = if pressed {
-        frontmost::bundle_id()
-    } else {
-        None
-    };
     let Ok(mut locked) = session.lock() else {
         return EventDisposition::Pass;
     };
-    let outcome = locked.handle_key(key.code(), pressed, input, app.as_deref());
+    let outcome = locked.handle_key(key.code(), pressed, input, None);
     drop(locked);
     if outcome.mode_changed {
         notify();

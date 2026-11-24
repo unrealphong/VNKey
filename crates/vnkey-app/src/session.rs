@@ -77,7 +77,7 @@ impl Session {
         app: Option<&str>,
     ) -> KeyOutcome {
         let mut mode_changed = false;
-        if let Some(app) = app.filter(|_| self.settings.smart_switch) {
+        if let Some(app) = app {
             mode_changed = self.app_in_front(app);
         }
         let action = code.map_or(HotkeyAction::Pass, |code| self.hotkey.on_key(code, pressed));
@@ -98,8 +98,10 @@ impl Session {
         }
     }
 
-    fn app_in_front(&mut self, app: &str) -> bool {
-        if self.smart_switch.current() == Some(app) {
+    /// Records that `app` is in front and restores its remembered mode.
+    /// Returns whether the mode changed.
+    pub fn app_in_front(&mut self, app: &str) -> bool {
+        if !self.settings.smart_switch || self.smart_switch.current() == Some(app) {
             return false;
         }
         let vietnamese = self.engine.is_vietnamese();
@@ -291,6 +293,21 @@ mod tests {
             AppState::load(&paths.state).apps.get("terminal"),
             Some(&false)
         );
+    }
+
+    #[test]
+    fn menu_toggle_is_remembered_for_the_app_in_front() {
+        let (mut session, paths) = session();
+        letter(&mut session, "editor");
+        assert!(!session.app_in_front("terminal"));
+        session.toggle_vietnamese();
+        assert!(session.app_in_front("editor"));
+        assert!(session.is_vietnamese());
+        assert!(session.app_in_front("terminal"));
+        assert!(!session.is_vietnamese());
+        let apps = AppState::load(&paths.state).apps;
+        assert_eq!(apps.get("editor"), Some(&true));
+        assert_eq!(apps.get("terminal"), Some(&false));
     }
 
     #[test]
