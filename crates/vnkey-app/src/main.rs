@@ -14,7 +14,7 @@ use inputs::{
     Event, EventDisposition, EventKind, GrabMode, KeyCode, KeyEvent, Listener, LogicalKey,
     PressState,
 };
-use vnkey_engine::{Engine, InputMethod};
+use vnkey_engine::legacy::{Engine, InputMethod};
 
 const LETTER_KEYS: [KeyCode; 26] = [
     KeyCode::KeyA,

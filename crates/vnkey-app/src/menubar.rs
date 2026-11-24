@@ -10,7 +10,7 @@ use tray_icon::{
     TrayIcon, TrayIconBuilder,
     menu::{CheckMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem},
 };
-use vnkey_engine::{Engine, InputMethod};
+use vnkey_engine::legacy::{Engine, InputMethod};
 
 const TOGGLE_ID: &str = "toggle";
 const TELEX_ID: &str = "telex";
