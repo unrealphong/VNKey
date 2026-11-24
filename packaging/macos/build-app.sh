@@ -36,6 +36,10 @@ for spec in "16 icon_16x16.png" "32 icon_16x16@2x.png" \
 done
 
 iconutil -c icns "$iconset_dir" -o "$app_dir/Contents/Resources/AppIcon.icns"
-codesign --force --deep --sign - "$app_dir"
+# A stable identity keeps the Accessibility permission across rebuilds; ad-hoc
+# signatures change with every build. See create-signing-identity.sh.
+identity=${VNKEY_SIGN_IDENTITY:-$(security find-identity -p codesigning 2>/dev/null |
+  awk '/"VNKey Local Signing"/ { print $2; exit }')}
+codesign --force --deep --sign "${identity:--}" "$app_dir"
 codesign --verify --deep --strict --verbose=2 "$app_dir"
 echo "$app_dir"

@@ -39,7 +39,8 @@ SwiftUI and needs Xcode; the script uses `/Applications/Xcode.app` when
 open dist/VNKey.app
 ```
 
-The local bundle uses ad-hoc signing for development. A public release should
+The local bundle is signed with the local identity described below, or ad hoc
+when there is none. A public release should
 use an Apple Developer ID certificate and notarization.
 
 ## Use
@@ -78,8 +79,15 @@ vnkey daemon vni
 
 The daemon requests Accessibility permission when it starts. If needed, enable
 the terminal or packaged VNKey application in **System Settings -> Privacy &
-Security -> Accessibility**, then restart VNKey. The ad-hoc signature changes
-with every local build, so a rebuilt app needs the permission again.
+Security -> Accessibility**, then restart VNKey.
+
+macOS ties the permission to the app's signature. An ad-hoc signature changes
+with every build, so create a local signing identity once and `build-app.sh`
+will use it, keeping the permission across rebuilds:
+
+```sh
+./packaging/macos/create-signing-identity.sh
+```
 
 Check the current state with:
 
