@@ -163,6 +163,16 @@ impl Engine {
         }
     }
 
+    #[must_use]
+    pub fn is_enabled(&self) -> bool {
+        self.enabled
+    }
+
+    #[must_use]
+    pub fn method(&self) -> InputMethod {
+        self.method
+    }
+
     pub fn set_enabled(&mut self, enabled: bool) {
         self.enabled = enabled;
         self.reset();
