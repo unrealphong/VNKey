@@ -7,12 +7,27 @@ icon_source="$project_dir/assets/vnkey-icon.png"
 iconset_dir="$project_dir/target/VNKey.iconset"
 
 cd "$project_dir"
-cargo build --release --package vnkey
+cargo build --release --locked --package vnkey
+version_output=$(target/release/vnkey --version)
+version=${version_output#VNKey }
+if ! printf '%s\n' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+  echo "Expected a macOS release version in the form major.minor.patch: $version" >&2
+  exit 1
+fi
+case ${VNKEY_BUILD_NUMBER:-} in
+  '') ;;
+  0*|*[!0-9]*) echo 'VNKEY_BUILD_NUMBER must be a positive integer.' >&2; exit 1 ;;
+esac
 
 rm -rf "$app_dir" "$iconset_dir"
 mkdir -p "$app_dir/Contents/MacOS" "$app_dir/Contents/Resources" "$iconset_dir"
 cp target/release/vnkey "$app_dir/Contents/MacOS/vnkey"
-cp packaging/macos/Info.plist "$app_dir/Contents/Info.plist"
+plist="$app_dir/Contents/Info.plist"
+cp packaging/macos/Info.plist "$plist"
+plutil -insert CFBundleShortVersionString -string "$version" "$plist"
+if [ -n "${VNKEY_BUILD_NUMBER:-}" ]; then
+  plutil -replace CFBundleVersion -string "$VNKEY_BUILD_NUMBER" "$plist"
+fi
 
 # SwiftUI's macros ship with Xcode, not with the Command Line Tools alone.
 if [ -z "${DEVELOPER_DIR:-}" ] && [ -d /Applications/Xcode.app/Contents/Developer ]; then
