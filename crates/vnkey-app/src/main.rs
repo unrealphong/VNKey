@@ -24,9 +24,11 @@ use inputs::{
 };
 use vnkey_engine::{Config, Engine, InputType, Key, KeyInput, Output};
 
+#[cfg(target_os = "macos")]
+use crate::session::CaptureStatus;
 use crate::{session::Session, settings::Paths};
 
-/// Called after the Vietnamese/English mode or the settings change.
+/// Called after a change that affects the menu bar.
 type Notify = Arc<dyn Fn() + Send + Sync>;
 
 const LETTER_KEYS: [KeyCode; 26] = [
@@ -201,16 +203,37 @@ fn watch_front_app(session: &Arc<Mutex<Session>>, notify: &Notify) {
 
 #[cfg(target_os = "macos")]
 fn serve_input(session: &Arc<Mutex<Session>>, notify: &Notify) {
-    inputs::request_permission();
+    let report = |status| {
+        if session
+            .lock()
+            .is_ok_and(|mut session| session.set_capture_status(status))
+        {
+            notify();
+        }
+    };
+
+    if !inputs::permission_status().is_usable() {
+        report(CaptureStatus::NeedsAccessibility);
+        inputs::request_permission();
+    }
+
     loop {
-        if inputs::permission_status() == inputs::PermissionStatus::Granted {
+        if inputs::permission_status().is_usable() {
             match start_listener(session, notify) {
                 Ok(listener) => {
+                    report(CaptureStatus::Active);
                     wait_while_healthy(&listener);
                     eprintln!("The keyboard listener stopped; restarting.");
                 }
                 Err(error) => eprintln!("{error}"),
             }
+            report(if inputs::permission_status().is_usable() {
+                CaptureStatus::Restarting
+            } else {
+                CaptureStatus::NeedsAccessibility
+            });
+        } else {
+            report(CaptureStatus::NeedsAccessibility);
         }
         thread::sleep(Duration::from_secs(1));
     }
@@ -250,7 +273,7 @@ fn print_help() -> ExitCode {
 fn handle_event(
     event: &Event,
     session: &Mutex<Session>,
-    keyboard: &Mutex<Enigo>,
+    keyboard: &Mutex<impl Keyboard>,
     notify: &Notify,
 ) -> EventDisposition {
     if event.injected {
@@ -291,14 +314,14 @@ fn handle_event(
     let Ok(mut keyboard) = keyboard.lock() else {
         return EventDisposition::Pass;
     };
-    if let Err(error) = send(&mut keyboard, backspaces, &text, then) {
+    if let Err(error) = send(&mut *keyboard, backspaces, &text, then) {
         eprintln!("Cannot send keys: {error}");
     }
     EventDisposition::Suppress
 }
 
 fn send(
-    keyboard: &mut Enigo,
+    keyboard: &mut impl Keyboard,
     backspaces: usize,
     text: &str,
     then: Option<Key>,
@@ -413,7 +436,41 @@ fn convert(input_type: InputType, input: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use inputs::{Modifiers, PhysicalKey};
+    use inputs::{Button, ButtonEvent, Modifiers, PhysicalKey};
+
+    #[derive(Default)]
+    struct TestField(String);
+
+    impl TestField {
+        fn apply(&mut self, character: char) {
+            if character == '\u{8}' {
+                self.0.pop().expect("a character to delete");
+            } else {
+                self.0.push(character);
+            }
+        }
+    }
+
+    impl Keyboard for TestField {
+        fn fast_text(&mut self, text: &str) -> enigo::InputResult<Option<()>> {
+            self.0.push_str(text);
+            Ok(Some(()))
+        }
+
+        fn key(&mut self, key: enigo::Key, direction: Direction) -> enigo::InputResult<()> {
+            assert_eq!(direction, Direction::Click);
+            match key {
+                enigo::Key::Backspace => self.apply('\u{8}'),
+                enigo::Key::Return => self.apply('\n'),
+                _ => panic!("unexpected injected key: {key:?}"),
+            }
+            Ok(())
+        }
+
+        fn raw(&mut self, keycode: u16, _: Direction) -> enigo::InputResult<()> {
+            panic!("unexpected raw key: {keycode}");
+        }
+    }
 
     #[test]
     fn converts_sentences() {
@@ -430,6 +487,86 @@ mod tests {
             repeat: false,
             modifiers,
         }
+    }
+
+    fn type_in_field(session: &Mutex<Session>, field: &Mutex<TestField>, sequence: &str) {
+        let notify: Notify = Arc::new(|| {});
+        for character in sequence.chars() {
+            let code = match character.to_ascii_lowercase() {
+                letter @ 'a'..='z' => LETTER_KEYS[(letter as usize) - ('a' as usize)],
+                digit @ '0'..='9' => DIGIT_KEYS[(digit as usize) - ('0' as usize)],
+                ' ' => KeyCode::Space,
+                '\u{8}' => KeyCode::Backspace,
+                '\n' => KeyCode::Enter,
+                _ => panic!("unsupported test key: {character:?}"),
+            };
+            let mut stroke = key(
+                code,
+                Modifiers {
+                    shift: character.is_ascii_uppercase(),
+                    ..Modifiers::default()
+                },
+            );
+            let press = Event::new(EventKind::Key(stroke.clone()), None, false);
+            if handle_event(&press, session, field, &notify) == EventDisposition::Pass {
+                field.lock().unwrap().apply(character);
+            }
+            stroke.state = PressState::Released;
+            let release = Event::new(EventKind::Key(stroke), None, false);
+            assert_eq!(
+                handle_event(&release, session, field, &notify),
+                EventDisposition::Pass
+            );
+        }
+    }
+
+    #[test]
+    fn types_and_edits_vietnamese_through_the_event_handler() {
+        for (method, sequence, expected) in [
+            (
+                InputType::Telex,
+                "w ow uwo\u{8}ow ruwouj ngwoif dduwocj thuowr THUOWR\n",
+                "ư ơ ươ rượu người được thuở THUỞ\n",
+            ),
+            (InputType::Vni, "u7 o7 uo7 ru7ou5\n", "ư ơ ươ rượu\n"),
+        ] {
+            let mut session = Session::new(None);
+            session.use_input_type(method);
+            let field = Mutex::default();
+            type_in_field(&Mutex::new(session), &field, sequence);
+            assert_eq!(field.into_inner().unwrap().0, expected);
+        }
+    }
+
+    #[test]
+    fn types_in_the_new_field_after_a_click_or_app_change() {
+        let session = Mutex::new(Session::new(None));
+        session.lock().unwrap().app_in_front("editor");
+        let first = Mutex::default();
+        let second = Mutex::default();
+        let third = Mutex::default();
+        type_in_field(&session, &first, "uo");
+
+        let click = Event::new(
+            EventKind::Button(ButtonEvent {
+                button: Button::Left,
+                state: PressState::Pressed,
+            }),
+            None,
+            false,
+        );
+        let notify: Notify = Arc::new(|| {});
+        assert_eq!(
+            handle_event(&click, &session, &second, &notify),
+            EventDisposition::Pass
+        );
+        type_in_field(&session, &second, "wuo");
+
+        session.lock().unwrap().app_in_front("terminal");
+        type_in_field(&session, &third, "w");
+        assert_eq!(first.into_inner().unwrap().0, "uo");
+        assert_eq!(second.into_inner().unwrap().0, "ưuo");
+        assert_eq!(third.into_inner().unwrap().0, "ư");
     }
 
     fn plain(code: KeyCode) -> Option<KeyInput> {

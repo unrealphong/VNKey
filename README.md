@@ -53,6 +53,9 @@ vnkey convert telex 'Tooi ye ** Vieetj Nam'
 
 On macOS, open `VNKey.app`: it lives in the menu bar (`V` for Vietnamese, `E`
 for English). Choose **Cài đặt…** (⌘,) for the settings window.
+The **Bộ gõ** tab has a test field and a sample for the selected input method.
+In the menu bar, `!` indicates that VNKey needs Accessibility permission and
+`…` indicates that keyboard capture is starting or restarting.
 
 Settings are stored in `~/Library/Application Support/VNKey/` on macOS and in
 `$XDG_CONFIG_HOME/vnkey/` (default `~/.config/vnkey/`) on Linux:

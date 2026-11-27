@@ -21,6 +21,16 @@ pub struct KeyOutcome {
     pub mode_changed: bool,
 }
 
+#[cfg(target_os = "macos")]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) enum CaptureStatus {
+    #[default]
+    Starting,
+    Active,
+    NeedsAccessibility,
+    Restarting,
+}
+
 pub struct Session {
     engine: Engine,
     settings: Settings,
@@ -28,6 +38,8 @@ pub struct Session {
     smart_switch: SmartSwitch,
     state: AppState,
     paths: Option<Paths>,
+    #[cfg(target_os = "macos")]
+    capture_status: CaptureStatus,
 }
 
 impl Session {
@@ -49,11 +61,23 @@ impl Session {
             smart_switch: SmartSwitch::default(),
             state,
             paths,
+            #[cfg(target_os = "macos")]
+            capture_status: CaptureStatus::default(),
         };
         if let Some(text) = session.read_macros() {
             session.load_macros(&text);
         }
         session
+    }
+
+    #[cfg(target_os = "macos")]
+    pub(crate) fn capture_status(&self) -> CaptureStatus {
+        self.capture_status
+    }
+
+    #[cfg(target_os = "macos")]
+    pub(crate) fn set_capture_status(&mut self, status: CaptureStatus) -> bool {
+        std::mem::replace(&mut self.capture_status, status) != status
     }
 
     pub fn read_macros(&self) -> Option<String> {
