@@ -88,6 +88,10 @@ const SYMBOL_KEYS: [(KeyCode, char); 11] = [
 fn main() -> ExitCode {
     let mut args = env::args().skip(1);
     match args.next().as_deref() {
+        Some("--version" | "-V") => {
+            print_version();
+            ExitCode::SUCCESS
+        }
         Some("convert") => {
             let input_type = parse_input_type(args.next().as_deref()).unwrap_or_default();
             let input = args.collect::<Vec<_>>().join(" ");
@@ -239,8 +243,12 @@ fn wait_while_healthy(listener: &Listener) {
     }
 }
 
-fn print_help() -> ExitCode {
+fn print_version() {
     println!("VNKey {}", env!("CARGO_PKG_VERSION"));
+}
+
+fn print_help() -> ExitCode {
+    print_version();
     println!("Usage: vnkey convert [telex|vni|simple1|simple2] <text>");
     println!("       vnkey daemon [telex|vni|simple1|simple2]");
     println!("       vnkey permissions");

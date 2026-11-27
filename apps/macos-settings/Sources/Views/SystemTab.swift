@@ -45,6 +45,11 @@ struct SystemTab: View {
     }
 
     private var version: String {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
+        guard let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString")
+            as? String else { return "Không rõ" }
+        if let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String {
+            return "\(version) (bản dựng \(build))"
+        }
+        return version
     }
 }
