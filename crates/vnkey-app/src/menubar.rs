@@ -17,28 +17,38 @@ use tray_icon::{
 };
 use vnkey_engine::InputType;
 
-use crate::session::Session;
+use crate::session::{CaptureStatus, Session};
 
+const CAPTURE_STATUS_ID: &str = "capture-status";
 const TOGGLE_ID: &str = "toggle";
 const TELEX_ID: &str = "telex";
 const VNI_ID: &str = "vni";
 const SETTINGS_ID: &str = "settings";
 const QUIT_ID: &str = "quit";
 const SETTINGS_PROGRAM: &str = "vnkey-settings";
+const ACCESSIBILITY_SETTINGS: &str =
+    "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility";
 
 struct Ui {
     tray: TrayIcon,
+    capture_status: MenuItem,
     toggle: CheckMenuItem,
     telex: CheckMenuItem,
     vni: CheckMenuItem,
 }
 
 impl Ui {
-    fn refresh(&self, enabled: bool, method: InputType) {
-        self.tray.set_title(Some(title(enabled)));
-        if let Err(error) = self.tray.set_tooltip(Some(tooltip(enabled, method))) {
+    fn refresh(&self, enabled: bool, method: InputType, capture: CaptureStatus) {
+        self.tray.set_title(Some(title(enabled, capture)));
+        if let Err(error) = self
+            .tray
+            .set_tooltip(Some(tooltip(enabled, method, capture)))
+        {
             eprintln!("Cannot update the menu bar tooltip: {error}");
         }
+        self.capture_status.set_text(capture_label(capture));
+        self.capture_status
+            .set_enabled(capture == CaptureStatus::NeedsAccessibility);
         self.toggle.set_checked(enabled);
         self.telex.set_checked(method == InputType::Telex);
         self.vni.set_checked(method == InputType::Vni);
@@ -61,7 +71,13 @@ pub fn run(session: Arc<Mutex<Session>>) -> ExitCode {
     let app = NSApplication::sharedApplication(mtm);
     app.setActivationPolicy(NSApplicationActivationPolicy::Accessory);
 
-    let (enabled, method) = current(&session);
+    let (enabled, method, capture) = current(&session);
+    let capture_status = MenuItem::with_id(
+        CAPTURE_STATUS_ID,
+        capture_label(capture),
+        capture == CaptureStatus::NeedsAccessibility,
+        None,
+    );
     let toggle = CheckMenuItem::with_id(TOGGLE_ID, "Gõ tiếng Việt", true, enabled, None);
     let telex = CheckMenuItem::with_id(TELEX_ID, "Telex", true, method == InputType::Telex, None);
     let vni = CheckMenuItem::with_id(VNI_ID, "VNI", true, method == InputType::Vni, None);
@@ -74,6 +90,7 @@ pub fn run(session: Arc<Mutex<Session>>) -> ExitCode {
     let quit = MenuItem::with_id(QUIT_ID, "Thoát VNKey", true, None);
     let menu = Menu::new();
     if let Err(error) = menu.append_items(&[
+        &capture_status,
         &toggle,
         &PredefinedMenuItem::separator(),
         &telex,
@@ -88,8 +105,8 @@ pub fn run(session: Arc<Mutex<Session>>) -> ExitCode {
 
     let tray = match TrayIconBuilder::new()
         .with_menu(Box::new(menu))
-        .with_title(title(enabled))
-        .with_tooltip(tooltip(enabled, method))
+        .with_title(title(enabled, capture))
+        .with_tooltip(tooltip(enabled, method, capture))
         .build()
     {
         Ok(value) => value,
@@ -101,6 +118,7 @@ pub fn run(session: Arc<Mutex<Session>>) -> ExitCode {
     UI.with_borrow_mut(|ui| {
         *ui = Some(Ui {
             tray,
+            capture_status,
             toggle,
             telex,
             vni,
@@ -120,15 +138,26 @@ pub fn refresh_later(session: Arc<Mutex<Session>>) {
 }
 
 fn refresh(session: &Mutex<Session>) {
-    let (enabled, method) = current(session);
+    let (enabled, method, capture) = current(session);
     UI.with_borrow(|ui| {
         if let Some(ui) = ui {
-            ui.refresh(enabled, method);
+            ui.refresh(enabled, method, capture);
         }
     });
 }
 
 fn handle_menu(event: &MenuEvent, session: &Mutex<Session>) {
+    if event.id == CAPTURE_STATUS_ID {
+        if current(session).2 == CaptureStatus::NeedsAccessibility {
+            if let Err(error) = Command::new("/usr/bin/open")
+                .arg(ACCESSIBILITY_SETTINGS)
+                .status()
+            {
+                eprintln!("Cannot open Accessibility settings: {error}");
+            }
+        }
+        return;
+    }
     if event.id == QUIT_ID {
         process::exit(0);
     }
@@ -177,28 +206,68 @@ fn open_settings() {
     }
 }
 
-fn current(session: &Mutex<Session>) -> (bool, InputType) {
-    session.lock().map_or((true, InputType::Telex), |session| {
-        (session.is_vietnamese(), session.input_type())
-    })
+fn current(session: &Mutex<Session>) -> (bool, InputType, CaptureStatus) {
+    session.lock().map_or(
+        (true, InputType::Telex, CaptureStatus::Restarting),
+        |session| {
+            (
+                session.is_vietnamese(),
+                session.input_type(),
+                session.capture_status(),
+            )
+        },
+    )
 }
 
 fn method_name(method: InputType) -> &'static str {
     match method {
         InputType::Telex => "Telex",
         InputType::Vni => "VNI",
-        InputType::SimpleTelex1 | InputType::SimpleTelex2 => "Simple Telex",
+        InputType::SimpleTelex1 => "Simple Telex 1",
+        InputType::SimpleTelex2 => "Simple Telex 2",
     }
 }
 
-fn title(enabled: bool) -> &'static str {
-    if enabled { "V" } else { "E" }
+fn title(enabled: bool, capture: CaptureStatus) -> &'static str {
+    match (enabled, capture) {
+        (true, CaptureStatus::Active) => "V",
+        (false, CaptureStatus::Active) => "E",
+        (true, CaptureStatus::NeedsAccessibility) => "V!",
+        (false, CaptureStatus::NeedsAccessibility) => "E!",
+        (true, CaptureStatus::Starting | CaptureStatus::Restarting) => "V…",
+        (false, CaptureStatus::Starting | CaptureStatus::Restarting) => "E…",
+    }
 }
 
-fn tooltip(enabled: bool, method: InputType) -> String {
-    if enabled {
-        format!("VNKey: Tiếng Việt ({})", method_name(method))
+fn capture_label(capture: CaptureStatus) -> &'static str {
+    match capture {
+        CaptureStatus::Starting => "Đang khởi động bộ gõ…",
+        CaptureStatus::Active => "Bộ gõ đang hoạt động",
+        CaptureStatus::NeedsAccessibility => "Thiếu quyền Accessibility…",
+        CaptureStatus::Restarting => "Đang khởi động lại bộ gõ…",
+    }
+}
+
+fn tooltip(enabled: bool, method: InputType, capture: CaptureStatus) -> String {
+    let mode = if enabled {
+        format!("Tiếng Việt ({})", method_name(method))
     } else {
-        "VNKey: English".to_owned()
+        "English".to_owned()
+    };
+    format!("VNKey: {mode}\n{}", capture_label(capture))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn menu_bar_title_shows_capture_health_in_each_mode() {
+        assert_eq!(title(true, CaptureStatus::Active), "V");
+        assert_eq!(title(false, CaptureStatus::Active), "E");
+        assert_eq!(title(true, CaptureStatus::NeedsAccessibility), "V!");
+        assert_eq!(title(false, CaptureStatus::NeedsAccessibility), "E!");
+        assert_eq!(title(true, CaptureStatus::Starting), "V…");
+        assert_eq!(title(false, CaptureStatus::Restarting), "E…");
     }
 }
