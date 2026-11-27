@@ -101,19 +101,22 @@ impl Session {
     /// Records that `app` is in front and restores its remembered mode.
     /// Returns whether the mode changed.
     pub fn app_in_front(&mut self, app: &str) -> bool {
-        if !self.settings.smart_switch || self.smart_switch.current() == Some(app) {
+        if self.smart_switch.current() == Some(app) {
             return false;
         }
         let vietnamese = self.engine.is_vietnamese();
-        let remembered = self
-            .smart_switch
-            .app_changed(app, vietnamese, &mut self.state);
+        let state = self.settings.smart_switch.then_some(&mut self.state);
+        let remembered = self.smart_switch.app_changed(app, vietnamese, state);
         let changed = remembered.is_some_and(|mode| mode != vietnamese);
         if changed {
             self.engine.set_vietnamese(!vietnamese);
             self.state.vietnamese = !vietnamese;
+        } else {
+            self.engine.reset_composition();
         }
-        self.save_state();
+        if self.settings.smart_switch {
+            self.save_state();
+        }
         changed
     }
 
@@ -322,6 +325,34 @@ mod tests {
         assert!(!letter(&mut session, "terminal").mode_changed);
         assert!(!letter(&mut session, "editor").mode_changed);
         assert!(!session.is_vietnamese());
+    }
+
+    #[test]
+    fn resets_the_word_on_app_change_even_when_the_mode_stays_the_same() {
+        for smart_switch in [false, true] {
+            let mut session = Session::new(None);
+            session.apply_settings(Settings {
+                smart_switch,
+                ..Settings::default()
+            });
+            session.app_in_front("editor");
+            assert_eq!(type_text(&mut session, "uo"), "uo");
+            assert!(!session.app_in_front("terminal"));
+            let outcome = session.handle_key(
+                Some(KeyCode::KeyW),
+                true,
+                Some(KeyInput::new(Key::Letter('w'))),
+                None,
+            );
+            assert_eq!(
+                outcome.output,
+                Output::Replace {
+                    backspaces: 0,
+                    text: "ư".into(),
+                    then: None,
+                }
+            );
+        }
     }
 
     #[test]

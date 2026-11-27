@@ -18069,7 +18069,7 @@ thuỗng Thuộng thuôt THUỐT.
 THUOTOF thuotor thuotox thuột 
 thuôc thuốc Thuôcf thuôcr 
 thuôcx thuộc thuơ thuớ 
-thuờ thuở thuỡ Thượ 
+thuờ thuở thuỡ Thuợ 
 Thư THỨ thừ thử.
 thữ thự thưa thứa 
 thừa Thửa thữa thựa 
@@ -18083,15 +18083,15 @@ THƯC Thức thưcf thưcr
 thưcx thực thưm thứm.
 thừm thửm Thữm thựm 
 thươi thưới thười thưởi 
-thuỡi THƯỢI thuơu Thướu 
-Thườu thuởu thuỡu thuợu 
+thưỡi THƯỢI thươu Thướu 
+Thườu thưởu thưỡu thượu 
 thươm thướm thườm thưởm.
-thuomwx Thượm thươn thướn 
+thưỡm Thượm thươn thướn 
 thườn thưởn THƯỠN thượn 
 thương thướng Thường thưởng 
-thưỡng thượng thuopw thuopws 
+thưỡng thượng thươp thướp 
 thườp thưởp thưỡp Thượp.
-Thươt thuớt thuơtf THƯƠTR 
+Thươt thướt thươtf THƯƠTR 
 THƯƠTX thượt thươc thước 
 thuocwf Thuocwr thuocwx thược 
 thy thý thỳ thỷ 
@@ -36843,7 +36843,7 @@ thuỗng Thuộng thuôt THUỐT.
 THUOT62 thuot63 thuot64 thuột 
 thuôc thuốc Thuôc2 thuôc3 
 thuôc4 thuộc thuơ thuớ 
-thuờ thuở thuỡ Thượ 
+thuờ thuở thuỡ Thuợ 
 Thư THỨ thừ thử.
 thữ thự thưa thứa 
 thừa Thửa thữa thựa 
@@ -36857,15 +36857,15 @@ THƯC Thức thưc2 thưc3
 thưc4 thực thưm thứm.
 thừm thửm Thữm thựm 
 thươi thưới thười thưởi 
-thuỡi THƯỢI thuơu Thướu 
-Thườu thuởu thuỡu thuợu 
+thưỡi THƯỢI thươu Thướu 
+Thườu thưởu thưỡu thượu 
 thươm thướm thườm thưởm.
-thuom74 Thượm thươn thướn 
+thưỡm Thượm thươn thướn 
 thườn thưởn THƯỠN thượn 
 thương thướng Thường thưởng 
-thưỡng thượng thuop7 thuop71 
+thưỡng thượng thươp thướp 
 thườp thưởp thưỡp Thượp.
-Thươt thuớt thuơt2 THƯƠT3 
+Thươt thướt thươt2 THƯƠT3 
 THƯƠT4 thượt thươc thước 
 thuoc72 Thuoc73 thuoc74 thược 
 thy thý thỳ thỷ 
@@ -37552,7 +37552,7 @@ bos
 mis 
 pres 
 hello 
-ửold 
+ưởld 
 ưindơ 
 file 
 tét 
@@ -39573,7 +39573,7 @@ bos
 mis 
 pres 
 hello 
-ưỏld 
+ưởld 
 ưindơ 
 file 
 tét 
@@ -45636,7 +45636,7 @@ bos
 mis 
 pres 
 hello 
-ửold 
+ưởld 
 ưindơ 
 file 
 tét 
@@ -47657,7 +47657,7 @@ bos
 mis 
 pres 
 hello 
-ưỏld 
+ưởld 
 ưindơ 
 file 
 tét 
