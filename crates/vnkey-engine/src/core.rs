@@ -30,8 +30,9 @@ use crate::{
         vowel, vowel_combine,
     },
     word::{
-        CAPS_MASK, CONSONANT_ALLOW_MASK, END_CONSONANT_MASK, MARK_MASK, MARK1_MASK, MARK2_MASK,
-        MARK3_MASK, MARK4_MASK, MARK5_MASK, MAX_BUFF, STANDALONE_MASK, TONE_MASK, TONEW_MASK, chr,
+        CAPS_MASK, CONSONANT_ALLOW_MASK, END_CONSONANT_MASK, IMPLIED_HORN_MASK, MARK_MASK,
+        MARK1_MASK, MARK2_MASK, MARK3_MASK, MARK4_MASK, MARK5_MASK, MAX_BUFF, STANDALONE_MASK,
+        TONE_MASK, TONEW_MASK, chr,
     },
 };
 
@@ -107,12 +108,6 @@ const TELEX_KEYS: [u32; 11] = [
 const VNI_KEYS: [u32; 11] = [
     KEY_1, KEY_2, KEY_3, KEY_4, KEY_5, KEY_6, KEY_6, KEY_7, KEY_8, KEY_9, KEY_0,
 ];
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum Event {
-    Keyboard,
-    Mouse,
-}
 
 /// What the front-end must do after an event.
 #[derive(Clone, Debug)]
@@ -364,8 +359,8 @@ impl Core {
             && self.c(self.index - 1) == key
     }
 
-    fn is_word_break(event: Event, data: u32) -> bool {
-        event == Event::Mouse || BREAK_CODE.contains(&data)
+    fn is_word_break(data: u32) -> bool {
+        BREAK_CODE.contains(&data)
     }
 
     fn is_macro_break_code(data: u32) -> bool {
@@ -490,6 +485,17 @@ impl Core {
         self.has_handled_macro = false;
         self.has_handle_quick_consonant = false;
         self.long_word_helper.clear();
+    }
+
+    pub(crate) fn reset_composition(&mut self) {
+        self.start_new_session();
+        self.typing_states.clear();
+        self.special_char.clear();
+        self.hook.macro_key.clear();
+        self.space_count = 0;
+        self.upper_case_status = 0;
+        self.check_spelling = self.use_spell_checking_before;
+        self.will_temp_off_engine = false;
     }
 
     // ---- spelling ------------------------------------------------------
@@ -654,10 +660,23 @@ impl Core {
         self.is_checked_grammar = false;
         let l = self.vowel_start;
 
-        if self.index >= 3 {
+        let last = self.index - 1;
+        if delta_backspace == -1
+            && self.c(last) == KEY_O
+            && self.c(last - 1) == KEY_U
+            && self.w(last - 1) & TONEW_MASK != 0
+        {
+            self.or_w(last, TONEW_MASK | IMPLIED_HORN_MASK);
+            self.is_checked_grammar = true;
+        }
+
+        let adjust_grammar = !self.config.free_mark || delta_backspace == 1;
+        if adjust_grammar && self.index >= 3 {
             for i in (0..self.index).rev() {
-                if matches!(self.c(i), KEY_N | KEY_C | KEY_I | KEY_M | KEY_P | KEY_T)
-                    && i - 2 >= 0
+                if matches!(
+                    self.c(i),
+                    KEY_N | KEY_C | KEY_I | KEY_M | KEY_P | KEY_T | KEY_U
+                ) && i - 2 >= l
                     && self.c(i - 1) == KEY_O
                     && self.c(i - 2) == KEY_U
                     && (self.w(i - 1) & TONEW_MASK) ^ (self.w(i - 2) & TONEW_MASK) != 0
@@ -670,14 +689,25 @@ impl Core {
             }
         }
 
-        if self.index >= 2 {
+        if adjust_grammar {
             let mut i = l;
             while i <= self.vowel_end {
                 if self.w(i) & MARK_MASK != 0 {
                     let mark = self.w(i) & MARK_MASK;
+                    let pending = (
+                        self.hook.backspace_count,
+                        self.hook.new_char_count,
+                        self.hook.char_data,
+                    );
                     self.clear_w(i, MARK_MASK);
                     self.insert_mark(mark, false);
-                    if i != self.vowel_will_set_mark {
+                    if i == self.vowel_will_set_mark {
+                        (
+                            self.hook.backspace_count,
+                            self.hook.new_char_count,
+                            self.hook.char_data,
+                        ) = pending;
+                    } else {
                         self.is_checked_grammar = true;
                     }
                     break;
@@ -1013,7 +1043,7 @@ impl Core {
     fn insert_aoe(&mut self, data: u32) {
         self.find_and_calculate_vowel(false);
         for ii in self.vowel_start..=self.vowel_end {
-            self.clear_w(ii, TONEW_MASK);
+            self.clear_w(ii, TONEW_MASK | IMPLIED_HORN_MASK);
         }
         self.hook.code = WILL_PROCESS;
         self.hook.backspace_count = 0;
@@ -1047,6 +1077,14 @@ impl Core {
     fn insert_w(&mut self) {
         self.find_and_calculate_vowel(false);
         let vsi = self.vowel_start;
+        if self.vowel_count > 1 && self.w(vsi + 1) & IMPLIED_HORN_MASK != 0 {
+            // Accept an explicit horn in sequences such as `uwow` and `u7o7`.
+            self.clear_w(vsi + 1, IMPLIED_HORN_MASK);
+            self.hook.code = WILL_PROCESS;
+            self.hook.backspace_count = 0;
+            self.hook.new_char_count = 0;
+            return;
+        }
         for ii in vsi..=self.vowel_end {
             self.clear_w(ii, TONE_MASK);
         }
@@ -1068,12 +1106,11 @@ impl Core {
                 self.hook.code = WILL_PROCESS;
                 let (first, second) = (self.c(vsi), self.c(vsi + 1));
                 if first == KEY_U && second == KEY_O {
-                    if vsi - 2 >= 0 && self.w(vsi - 2) == KEY_T && self.w(vsi - 1) == KEY_H {
-                        self.or_w(vsi + 1, TONEW_MASK);
-                        if vsi + 2 < self.index && self.c(vsi + 2) == KEY_N {
-                            self.or_w(vsi, TONEW_MASK);
-                        }
-                    } else if vsi > 0 && self.w(vsi - 1) == KEY_Q {
+                    if self.index == vsi + 2
+                        && vsi >= 2
+                        && self.c(vsi - 2) == KEY_T
+                        && self.c(vsi - 1) == KEY_H
+                    {
                         self.or_w(vsi + 1, TONEW_MASK);
                     } else {
                         self.or_w(vsi, TONEW_MASK);
@@ -1122,7 +1159,8 @@ impl Core {
                     } else {
                         self.hook.code = RESTORE;
                         self.clear_w(ii, TONEW_MASK);
-                        self.set_data(slot, self.w(ii));
+                        let value = self.code(self.w(ii));
+                        self.set_data(slot, value);
                     }
                     self.temp_disable_key = true;
                 } else {
@@ -1452,7 +1490,7 @@ impl Core {
             if self.hook.macro_key.pop().is_none() {
                 self.will_temp_off_engine = false;
             }
-        } else if Self::is_word_break(Event::Keyboard, data) && !CHAR_KEY_CODE.contains(&data) {
+        } else if Self::is_word_break(data) && !CHAR_KEY_CODE.contains(&data) {
             self.hook.macro_key.clear();
             self.will_temp_off_engine = false;
         } else if !self.will_temp_off_engine {
@@ -1460,23 +1498,16 @@ impl Core {
         }
     }
 
-    /// Handles a key press (`Event::Keyboard`) or a mouse click.
+    /// Handles a key press.
     ///
     /// `caps_status` is 1 for Shift, 2 for Caps Lock, 0 otherwise.
-    pub(crate) fn handle_event(
-        &mut self,
-        event: Event,
-        data: u32,
-        caps_status: u8,
-        other_control_key: bool,
-    ) {
-        let key_down = event == Event::Keyboard;
+    pub(crate) fn handle_event(&mut self, data: u32, caps_status: u8, other_control_key: bool) {
         self.is_caps = caps_status == 1 || caps_status == 2;
         let is_caps = self.is_caps;
 
         if (is_number_key(data) && caps_status == 1)
             || other_control_key
-            || Self::is_word_break(event, data)
+            || Self::is_word_break(data)
             || (self.index == 0 && is_number_key(data))
         {
             self.hook.code = DO_NOTHING;
@@ -1497,7 +1528,7 @@ impl Core {
                 && Self::is_macro_break_code(data)
             {
                 self.check_quick_consonant();
-            } else if self.config.restore_if_wrong_spelling && Self::is_word_break(event, data) {
+            } else if self.config.restore_if_wrong_spelling && Self::is_word_break(data) {
                 if !self.temp_disable_key && self.check_spelling {
                     self.run_check_spelling(true);
                 }
@@ -1508,7 +1539,7 @@ impl Core {
                 }
             }
 
-            let is_char_key_code = key_down && CHAR_KEY_CODE.contains(&data);
+            let is_char_key_code = CHAR_KEY_CODE.contains(&data);
             if is_char_key_code {
                 if self.space_count > 0 {
                     self.save_repeated(KEY_SPACE, self.space_count);
@@ -1666,7 +1697,7 @@ impl Core {
                 self.handle_main_key(data, is_caps);
             }
 
-            if !self.config.free_mark && !self.is_key_d(data) {
+            if !self.is_key_d(data) {
                 if self.hook.code == DO_NOTHING {
                     self.check_grammar(-1);
                 } else {
@@ -1686,7 +1717,11 @@ impl Core {
                     for _ in 0..self.hook.backspace_count {
                         self.hook.macro_key.pop();
                     }
-                    let start = self.index - self.hook.backspace_count;
+                    let start = if self.hook.code == WILL_PROCESS {
+                        self.index - self.hook.new_char_count
+                    } else {
+                        self.index - self.hook.backspace_count
+                    };
                     for i in start..start + self.hook.new_char_count {
                         self.hook.macro_key.push(self.w(i));
                     }

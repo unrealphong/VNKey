@@ -19,12 +19,14 @@ impl SmartSwitch {
         &mut self,
         app: &str,
         vietnamese: bool,
-        state: &mut AppState,
+        state: Option<&mut AppState>,
     ) -> Option<bool> {
         if self.current.as_deref() == Some(app) {
             return None;
         }
-        if let Some(previous) = self.current.replace(app.to_owned()) {
+        let previous = self.current.replace(app.to_owned());
+        let state = state?;
+        if let Some(previous) = previous {
             state.apps.insert(previous, vietnamese);
         }
         state.apps.get(app).copied()
@@ -46,14 +48,17 @@ mod tests {
     fn restores_mode_per_app() {
         let mut state = AppState::default();
         let mut switch = SmartSwitch::default();
-        assert_eq!(switch.app_changed("editor", true, &mut state), None);
-        assert_eq!(switch.app_changed("editor", true, &mut state), None);
-        assert_eq!(switch.app_changed("terminal", true, &mut state), None);
+        assert_eq!(switch.app_changed("editor", true, Some(&mut state)), None);
+        assert_eq!(switch.app_changed("editor", true, Some(&mut state)), None);
+        assert_eq!(switch.app_changed("terminal", true, Some(&mut state)), None);
         assert_eq!(state.apps.get("editor"), Some(&true));
         switch.remember(false, &mut state);
-        assert_eq!(switch.app_changed("editor", false, &mut state), Some(true));
         assert_eq!(
-            switch.app_changed("terminal", true, &mut state),
+            switch.app_changed("editor", false, Some(&mut state)),
+            Some(true)
+        );
+        assert_eq!(
+            switch.app_changed("terminal", true, Some(&mut state)),
             Some(false)
         );
     }

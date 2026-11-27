@@ -28,6 +28,8 @@ pub(crate) const CHAR_MASK: u32 = 0xFFFF;
 pub(crate) const STANDALONE_MASK: u32 = 0x100_0000;
 /// The low bits are a character code, not a key code.
 pub(crate) const CHAR_CODE_MASK: u32 = 0x200_0000;
+/// The horn on `ơ` was inferred from the preceding `ư`.
+pub(crate) const IMPLIED_HORN_MASK: u32 = 0x400_0000;
 /// A literal character that must be sent as is.
 pub(crate) const PURE_CHARACTER_MASK: u32 = 0x8000_0000;
 

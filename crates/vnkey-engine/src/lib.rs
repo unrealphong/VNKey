@@ -16,7 +16,7 @@ pub use keys::{Key, KeyInput};
 pub use macros::MacroTable;
 
 use crate::{
-    core::{Core, Event, REPLACE_MACRO, RESTORE, RESTORE_AND_START_NEW_SESSION, WILL_PROCESS},
+    core::{Core, REPLACE_MACRO, RESTORE, RESTORE_AND_START_NEW_SESSION, WILL_PROCESS},
     keys::key_code_to_character,
     word::{CAPS_MASK, MAX_BUFF},
 };
@@ -64,8 +64,7 @@ impl Engine {
 
     pub fn set_config(&mut self, config: Config) {
         self.core.set_config(config);
-        self.core.start_new_session();
-        self.lengths.clear();
+        self.reset_composition();
     }
 
     #[must_use]
@@ -75,7 +74,12 @@ impl Engine {
 
     pub fn set_vietnamese(&mut self, vietnamese: bool) {
         self.vietnamese = vietnamese;
-        self.core.start_new_session();
+        self.reset_composition();
+    }
+
+    /// Discards the typing context when focus moves to another application.
+    pub fn reset_composition(&mut self) {
+        self.core.reset_composition();
         self.lengths.clear();
     }
 
@@ -145,10 +149,7 @@ impl Engine {
 
     /// Ends the current word, as when the user clicks elsewhere.
     pub fn handle_mouse_down(&mut self) {
-        if self.vietnamese {
-            self.core.handle_event(Event::Mouse, 0, 0, false);
-            self.lengths.clear();
-        }
+        self.reset_composition();
     }
 
     pub fn handle_key(&mut self, input: KeyInput) -> Output {
@@ -175,8 +176,7 @@ impl Engine {
         } else {
             0
         };
-        self.core
-            .handle_event(Event::Keyboard, code, caps_status, other_control_key);
+        self.core.handle_event(code, caps_status, other_control_key);
 
         match self.core.hook.code {
             WILL_PROCESS | RESTORE | RESTORE_AND_START_NEW_SESSION => self.process_output(input),
@@ -287,6 +287,59 @@ mod tests {
             ..Config::default()
         });
         assert_eq!(type_text(&mut engine, "tie6ng1 "), "tiếng ");
+    }
+
+    #[test]
+    fn completes_horns_in_telex() {
+        for free_mark in [false, true] {
+            for (keys, expected) in [
+                ("w ww uw ow ", "ư w ư ơ "),
+                ("uwo", "ươ"),
+                ("uwo uwow uow ", "ươ ươ ươ "),
+                ("uwoww ", "uow "),
+                ("ruwouj rwouj ruoujw ", "rượu rượu rượu "),
+                ("ngwoif dduwocj ", "người được "),
+                ("thuowr THUOWR quow ", "thuở THUỞ quơ "),
+            ] {
+                let mut engine = Engine::new(Config {
+                    free_mark,
+                    ..Config::default()
+                });
+                assert_eq!(type_text(&mut engine, keys), expected, "{keys}");
+            }
+        }
+    }
+
+    #[test]
+    fn completes_horns_in_simple_telex_and_vni() {
+        for input_type in [InputType::SimpleTelex1, InputType::SimpleTelex2] {
+            let mut engine = Engine::new(Config {
+                input_type,
+                ..Config::default()
+            });
+            assert_eq!(type_text(&mut engine, "uwo uwow "), "ươ ươ ");
+        }
+        let mut engine = Engine::new(Config {
+            input_type: InputType::Vni,
+            ..Config::default()
+        });
+        assert_eq!(type_text(&mut engine, "u7o u7o7 ruou57 "), "ươ ươ rượu ");
+    }
+
+    #[test]
+    fn edits_inferred_horns_and_keeps_tones() {
+        for (typed, expected) in [("uwo<ow", "ươ"), ("uwso", "ướ"), ("owsw", "ów")] {
+            let mut engine = Engine::new(Config::default());
+            assert_eq!(type_inputs(&mut engine, &keys(typed)), expected, "{typed}");
+        }
+    }
+
+    #[test]
+    fn mouse_click_discards_an_unfinished_word() {
+        let mut engine = Engine::new(Config::default());
+        assert_eq!(type_text(&mut engine, "wok"), "ươk");
+        engine.handle_mouse_down();
+        assert_eq!(type_text(&mut engine, "w"), "ư");
     }
 
     /// Applies `inputs` to a text field, as a front-end would.

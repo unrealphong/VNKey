@@ -19,7 +19,8 @@ use std::{
 
 use enigo::{Direction, Enigo, Keyboard};
 use inputs::{
-    Event, EventDisposition, EventKind, GrabMode, KeyCode, KeyEvent, Listener, PressState,
+    Event, EventDisposition, EventKind, GrabMode, InjectionSignature, KeyCode, KeyEvent, Listener,
+    PressState,
 };
 use vnkey_engine::{Config, Engine, InputType, Key, KeyInput, Output};
 
@@ -216,13 +217,18 @@ fn serve_input(session: &Arc<Mutex<Session>>, notify: &Notify) {
 }
 
 fn start_listener(session: &Arc<Mutex<Session>>, notify: &Notify) -> Result<Listener, String> {
-    let keyboard = Enigo::new(&enigo::Settings::default())
-        .map_err(|error| format!("Cannot initialize keyboard output: {error}"))?;
+    let signature = InjectionSignature::default();
+    let keyboard = Enigo::new(&enigo::Settings {
+        event_source_user_data: Some(i64::from_ne_bytes(signature.0.to_ne_bytes())),
+        ..enigo::Settings::default()
+    })
+    .map_err(|error| format!("Cannot initialize keyboard output: {error}"))?;
     let keyboard = Mutex::new(keyboard);
     let session = Arc::clone(session);
     let notify = Arc::clone(notify);
     inputs::Listener::builder()
         .grab_mode(GrabMode::Force)
+        .injection_signature(signature)
         .start(move |event: &Event| handle_event(event, &session, &keyboard, &notify))
         .map_err(|error| format!("Cannot capture keyboard input: {error}"))
 }
