@@ -3,6 +3,8 @@
 VNKey is a GPL-3.0 Vietnamese input method written in Rust for macOS and
 Linux.
 
+[Download a release](https://github.com/unrealphong/VNKey/releases) · [Changelog](CHANGELOG.md)
+
 ## Features
 
 - Pure Rust engine with Telex, VNI and Simple Telex input
